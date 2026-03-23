@@ -389,6 +389,7 @@ func TestReleaseCreate(t *testing.T) {
 func TestReleaseUpload(t *testing.T) {
 	jwt := getMasterJWT(t)
 	bucket := "itest-" + randSuffix()
+	version := "v1.0.0"
 	osArch := "linux_amd64"
 	fileName := "testbin"
 	content := "binary-content-" + randSuffix()
@@ -405,7 +406,7 @@ func TestReleaseUpload(t *testing.T) {
 	createResp.Body.Close()
 
 	// Upload.
-	uploadURL := fmt.Sprintf("%s/api/v1/release/%s/%s/%s", testBaseURL, bucket, osArch, fileName)
+	uploadURL := fmt.Sprintf("%s/api/v1/release/%s/%s/%s/%s", testBaseURL, bucket, version, osArch, fileName)
 	uploadReq, _ := http.NewRequest("PUT", uploadURL, strings.NewReader(content))
 	uploadReq.Header.Set("Authorization", "Bearer "+jwt)
 	uploadReq.Header.Set("Content-Type", "application/octet-stream")
@@ -419,7 +420,7 @@ func TestReleaseUpload(t *testing.T) {
 	}
 
 	// Verify via /rs/ public route.
-	rsURL := fmt.Sprintf("%s/rs/%s/%s/%s", testBaseURL, bucket, osArch, fileName)
+	rsURL := fmt.Sprintf("%s/rs/%s/%s/%s/%s", testBaseURL, bucket, version, osArch, fileName)
 	getResp, err := http.Get(rsURL)
 	if err != nil {
 		t.Fatal(err)
@@ -434,6 +435,7 @@ func TestReleaseUpload(t *testing.T) {
 func TestDownload_PublicRelease(t *testing.T) {
 	jwt := getMasterJWT(t)
 	bucket := "itest-" + randSuffix()
+	version := "v1.0.0"
 	osArch := "linux_amd64"
 	fileName := "pubfile"
 	content := "public-release-" + randSuffix()
@@ -449,7 +451,7 @@ func TestDownload_PublicRelease(t *testing.T) {
 	}
 	createResp.Body.Close()
 
-	uploadURL := fmt.Sprintf("%s/api/v1/release/%s/%s/%s", testBaseURL, bucket, osArch, fileName)
+	uploadURL := fmt.Sprintf("%s/api/v1/release/%s/%s/%s/%s", testBaseURL, bucket, version, osArch, fileName)
 	uploadReq, _ := http.NewRequest("PUT", uploadURL, strings.NewReader(content))
 	uploadReq.Header.Set("Authorization", "Bearer "+jwt)
 	uploadResp, err := http.DefaultClient.Do(uploadReq)
@@ -459,7 +461,7 @@ func TestDownload_PublicRelease(t *testing.T) {
 	uploadResp.Body.Close()
 
 	// Public download at /rs/ — no auth.
-	rsURL := fmt.Sprintf("%s/rs/%s/%s/%s", testBaseURL, bucket, osArch, fileName)
+	rsURL := fmt.Sprintf("%s/rs/%s/%s/%s/%s", testBaseURL, bucket, version, osArch, fileName)
 	resp, err := http.Get(rsURL)
 	if err != nil {
 		t.Fatal(err)

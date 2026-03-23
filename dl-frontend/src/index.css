@@ -142,6 +142,16 @@ html, body {
   color: #fff;
 }
 
+.btn--copied {
+  color: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+.btn__copied-label {
+  margin-left: 4px;
+  font-size: 11px;
+}
+
 .btn--sm {
   font-size: 11px;
   padding: 2px 7px;
@@ -568,6 +578,25 @@ html, body {
   color: var(--fg-muted);
 }
 
+.release__bucket-item--latest {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.release__bucket-item--latest:hover {
+  background: var(--accent-dim);
+}
+
+.release__latest-badge {
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-left: 2px;
+}
+
+.release__crumb--latest {
+  color: var(--accent);
+}
+
 .release__breadcrumb {
   display: flex;
   align-items: center;
@@ -628,6 +657,40 @@ html, body {
   flex-wrap: wrap;
 }
 
+.release__upload-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.release__version-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.release__bump-btns {
+  display: flex;
+  gap: 4px;
+}
+
+.release__bump-btn {
+  font-size: 11px;
+  padding: 2px 7px;
+}
+
+.release__latest-hint {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+/* In-panel back button */
+.release__back-btn {
+  align-self: flex-start;
+}
+
 /* Mobile back button — hidden on desktop */
 .release__mobile-back {
   display: none;
@@ -662,6 +725,146 @@ html, body {
   }
 }
 
+/* ── Release landing page ── */
+.landing {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 40px 16px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.landing__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.landing__icon {
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.landing__title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--fg);
+}
+
+.landing__version {
+  color: var(--fg-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.landing__version code {
+  color: var(--accent);
+}
+
+.landing__primary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.landing__download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  font-size: 15px;
+}
+
+.landing__file-hint {
+  color: var(--fg-muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.landing__no-detect {
+  color: var(--fg-muted);
+  font-size: 13px;
+  text-align: center;
+  margin: 0;
+}
+
+.landing__targets-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  margin: 0 0 8px;
+}
+
+.landing__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.landing__table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.landing__table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.landing__row--detected td {
+  background: var(--accent-dim);
+}
+
+.landing__target-name {
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.landing__detected-badge {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 0 4px;
+  vertical-align: middle;
+}
+
+.landing__file-name {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.landing__file-size {
+  color: var(--fg-muted);
+  font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.landing__actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.landing__actions .btn + .btn {
+  margin-left: 4px;
+}
+
+@media (max-width: 480px) {
+  .landing__file-name,
+  .landing__file-size {
+    display: none;
+  }
+}
+
 .tag {
   display: inline-block;
   background: var(--bg-hover);
@@ -671,6 +874,98 @@ html, body {
   padding: 1px 5px;
   border-radius: var(--radius);
   margin: 1px;
+}
+
+/* ── Scope tags ── */
+.scope-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.scope-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px 1px 5px;
+  margin: 0;
+}
+
+.scope-tag--read {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.scope-tag--write {
+  color: #e8a838;
+  border-color: #e8a83855;
+  background: #e8a83812;
+}
+
+.scope-tag--release {
+  color: var(--accent-admin);
+  border-color: var(--accent-admin-dim);
+  background: color-mix(in srgb, var(--accent-admin) 10%, transparent);
+}
+
+.scope-tag__remove {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 0 0 0 2px;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.6;
+  line-height: 1;
+}
+
+.scope-tag__remove:hover {
+  opacity: 1;
+}
+
+/* ── Scope builder ── */
+.scope-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-alt);
+}
+
+.scope-builder__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.scope-builder__label {
+  color: var(--fg-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  min-width: 100px;
+}
+
+.scope-builder__select {
+  width: auto;
+}
+
+.scope-builder__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  padding-top: 2px;
+}
+
+.scope-builder__hint {
+  color: var(--fg-muted);
+  font-size: 11px;
 }
 
 .new-key-banner {

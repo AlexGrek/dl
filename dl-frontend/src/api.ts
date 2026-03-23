@@ -169,6 +169,37 @@ export async function deleteKey(masterKey: string, rawKey: string): Promise<void
   if (!res.ok) throw new Error(`Failed to delete key: ${res.status}`);
 }
 
+// ── Public release info (no auth) ──
+
+export interface ReleaseFile {
+  name: string;
+  size: number;
+}
+
+export interface ReleaseInfo {
+  bucket: string;
+  latest: string;
+  targets: Record<string, ReleaseFile[]>;
+}
+
+export async function getReleaseInfo(bucket: string): Promise<ReleaseInfo> {
+  const res = await fetch(`/api/v1/pub/release/${encodeURIComponent(bucket)}`);
+  if (res.status === 404) throw new Error('not found');
+  if (!res.ok) throw new Error(`Failed to load release info: ${res.status}`);
+  return (await res.json()) as ReleaseInfo;
+}
+
+/** Detect the current platform as a likely os/arch string, e.g. "linux-amd64". */
+export function detectPlatform(): string {
+  const ua = navigator.userAgent.toLowerCase();
+  const isArm = ua.includes('arm64') || ua.includes('aarch64');
+  const arch = isArm ? 'arm64' : 'amd64';
+  if (ua.includes('win')) return `windows-${arch}`;
+  if (ua.includes('mac') || ua.includes('darwin')) return `darwin-${arch}`;
+  if (ua.includes('linux') || ua.includes('android')) return `linux-${arch}`;
+  return '';
+}
+
 // ── Release management ──
 
 export async function createReleaseBucket(jwt: string, bucket: string): Promise<void> {
@@ -183,12 +214,62 @@ export async function createReleaseBucket(jwt: string, bucket: string): Promise<
 export async function uploadRelease(
   jwt: string,
   bucket: string,
+  version: string,
   osArch: string,
   file: File,
   onProgress?: (pct: number) => void,
 ): Promise<void> {
-  const apiPath = `/api/v1/release/${encodeURIComponent(bucket)}/${encodeURIComponent(osArch)}/${encodeURIComponent(file.name)}`;
+  const apiPath = `/api/v1/release/${encodeURIComponent(bucket)}/${encodeURIComponent(version)}/${encodeURIComponent(osArch)}/${encodeURIComponent(file.name)}`;
   await uploadFile(apiPath, file, jwt, onProgress);
+}
+
+export async function uploadReleaseMultipart(
+  jwt: string,
+  bucket: string,
+  version: string,
+  osArch: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<void> {
+  const form = new FormData();
+  form.append('version', version);
+  form.append('os_arch', osArch);
+  form.append('file', file, file.name);
+
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/v1/release/${encodeURIComponent(bucket)}/upload`);
+    xhr.setRequestHeader('Authorization', `Bearer ${jwt}`);
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Upload failed: ${xhr.status} ${xhr.responseText.slice(0, 200)}`));
+    };
+    xhr.onerror = () => reject(new Error('Upload error'));
+    xhr.send(form);
+  });
+}
+
+// ── Semver helpers ──
+
+export function parseSemver(v: string): [number, number, number] | null {
+  const m = v.match(/^v?(\d+)\.(\d+)\.(\d+)/);
+  if (!m) return null;
+  return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)];
+}
+
+export function bumpSemver(v: string, part: 'major' | 'minor' | 'patch'): string {
+  const parsed = parseSemver(v);
+  if (!parsed) return v;
+  const [major, minor, patch] = parsed;
+  const prefix = v.trimStart().startsWith('v') ? 'v' : '';
+  if (part === 'major') return `${prefix}${major + 1}.0.0`;
+  if (part === 'minor') return `${prefix}${major}.${minor + 1}.0`;
+  return `${prefix}${major}.${minor}.${patch + 1}`;
 }
 
 /** Decode JWT payload and return scopes array (no signature verification). */

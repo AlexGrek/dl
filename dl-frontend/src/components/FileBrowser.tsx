@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { Folder, File, Download, Trash2, RefreshCw, FolderPlus, Upload } from 'lucide-preact';
+import { Folder, File, Download, Trash2, RefreshCw, FolderPlus, Upload, Link } from 'lucide-preact';
 import {
   type DavEntry,
   propfind,
@@ -16,11 +16,12 @@ import { ConfirmModal } from './ConfirmModal';
 
 interface Props {
   jwt: string | null;
+  path: string;
+  onNavigate: (path: string) => void;
   onLoginRequired: () => void;
 }
 
-export function FileBrowser({ jwt, onLoginRequired }: Props) {
-  const [path, setPath] = useState('/');   // upstream path
+export function FileBrowser({ jwt, path, onNavigate, onLoginRequired }: Props) {
   const [entries, setEntries] = useState<DavEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -30,8 +31,12 @@ export function FileBrowser({ jwt, onLoginRequired }: Props) {
   const [newDirMode, setNewDirMode] = useState(false);
   const [newDirName, setNewDirName] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<DavEntry | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [copiedHref, setCopiedHref] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (jwt) void loadDir(path);
@@ -59,7 +64,7 @@ export function FileBrowser({ jwt, onLoginRequired }: Props) {
   }
 
   function navigate(upstreamPath: string) {
-    setPath(upstreamPath.endsWith('/') ? upstreamPath : upstreamPath + '/');
+    onNavigate(upstreamPath.endsWith('/') ? upstreamPath : upstreamPath + '/');
   }
 
   async function handleUpload(files: FileList | null) {
@@ -101,6 +106,23 @@ export function FileBrowser({ jwt, onLoginRequired }: Props) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create folder');
     }
+  }
+
+  function handleCopyFileLink(entry: DavEntry) {
+    const url = window.location.origin + entryDownloadUrl(entry);
+    void navigator.clipboard.writeText(url).then(() => {
+      setCopiedHref(entry.href);
+      if (fileCopyTimer.current) clearTimeout(fileCopyTimer.current);
+      fileCopyTimer.current = setTimeout(() => setCopiedHref(null), 2000);
+    });
+  }
+
+  function handleCopyLink() {
+    void navigator.clipboard.writeText(window.location.href).then(() => {
+      setCopied(true);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   // Drag-and-drop
@@ -175,6 +197,15 @@ export function FileBrowser({ jwt, onLoginRequired }: Props) {
         </nav>
 
         <div class="browser__toolbar-right">
+          <button
+            class={`btn btn--muted btn--sm${copied ? ' btn--copied' : ''}`}
+            id="btn-share"
+            onClick={handleCopyLink}
+            title="Copy link to this directory"
+          >
+            <Link size={13} />
+            {copied && <span class="btn__copied-label">copied!</span>}
+          </button>
           <button
             class="btn btn--muted btn--sm"
             id="btn-refresh"
@@ -287,14 +318,25 @@ export function FileBrowser({ jwt, onLoginRequired }: Props) {
                 <td>
                   <div class="file-table__actions">
                     {!entry.isDir && (
-                      <a
-                        class="btn btn--muted btn--sm"
-                        href={entryDownloadUrl(entry)}
-                        download={entry.name}
-                        data-action="download"
-                      >
-                        <Download size={13} />
-                      </a>
+                      <>
+                        <button
+                          class={`btn btn--muted btn--sm${copiedHref === entry.href ? ' btn--copied' : ''}`}
+                          data-action="copy-link"
+                          data-href={entry.href}
+                          title="Copy permalink"
+                          onClick={() => handleCopyFileLink(entry)}
+                        >
+                          <Link size={13} />
+                        </button>
+                        <a
+                          class="btn btn--muted btn--sm"
+                          href={entryDownloadUrl(entry)}
+                          download={entry.name}
+                          data-action="download"
+                        >
+                          <Download size={13} />
+                        </a>
+                      </>
                     )}
                     <button
                       class="btn btn--danger btn--sm"

@@ -74,7 +74,11 @@ func (app *App) registerRoutes(mux *http.ServeMux) {
 
 	// Release management — JWT required.
 	mux.Handle("POST /api/v1/release/create", app.jwtMiddleware(http.HandlerFunc(app.handleReleaseCreate)))
-	mux.Handle("PUT /api/v1/release/{bucket}/{os_arch}/{file...}", app.jwtMiddleware(http.HandlerFunc(app.handleReleaseUpload)))
+	mux.Handle("POST /api/v1/release/{bucket}/upload", app.jwtMiddleware(http.HandlerFunc(app.handleReleaseMultipartUpload)))
+	mux.Handle("PUT /api/v1/release/{bucket}/{version}/{os_arch}/{file...}", app.jwtMiddleware(http.HandlerFunc(app.handleReleaseUpload)))
+
+	// Public release info — no auth.
+	mux.HandleFunc("GET /api/v1/pub/release/{bucket}", app.handlePublicReleaseInfo)
 
 	// Public downloads — no auth.
 	mux.HandleFunc("GET /d/{path...}", app.handleDownload)

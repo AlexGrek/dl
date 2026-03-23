@@ -2,32 +2,58 @@ import { useState, useEffect } from 'preact/hooks';
 import { FileBrowser } from './components/FileBrowser';
 import { AdminPage } from './components/AdminPage';
 import { ReleasePage } from './components/ReleasePage';
+import { ReleaseLandingPage } from './components/ReleaseLandingPage';
 import { LoginModal } from './components/LoginModal';
 import { hasReleaseScope } from './api';
 
-type Page = 'browser' | 'admin' | 'releases';
+type Page = 'browser' | 'admin' | 'releases' | 'release-landing';
 
-function getPage(): Page {
-  if (window.location.hash.startsWith('#/admin')) return 'admin';
-  if (window.location.hash.startsWith('#/releases')) return 'releases';
-  return 'browser';
+interface RouteState {
+  page: Page;
+  filePath: string;
+  releaseBucket: string;
+}
+
+function parsePath(pathname: string): RouteState {
+  if (pathname.startsWith('/admin')) return { page: 'admin', filePath: '/', releaseBucket: '' };
+  if (pathname.startsWith('/releases')) return { page: 'releases', filePath: '/', releaseBucket: '' };
+  if (pathname.startsWith('/files/')) return { page: 'browser', filePath: pathname.slice('/files'.length), releaseBucket: '' };
+  const releaseMatch = pathname.match(/^\/r\/([^/]+)\/?$/);
+  if (releaseMatch) return { page: 'release-landing', filePath: '/', releaseBucket: releaseMatch[1] };
+  return { page: 'browser', filePath: '/', releaseBucket: '' };
+}
+
+function filePathToUrl(p: string): string {
+  return p === '/' ? '/' : `/files${p}`;
 }
 
 export function App() {
-  const [page, setPage] = useState<Page>(getPage);
+  const [route, setRoute] = useState<RouteState>(() => parsePath(window.location.pathname));
   const [jwt, setJwt] = useState<string | null>(() => localStorage.getItem('dl_jwt'));
   const [showLogin, setShowLogin] = useState(false);
 
   useEffect(() => {
-    const onHashChange = () => setPage(getPage());
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
+    const onPop = () => setRoute(parsePath(window.location.pathname));
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  function navigate(p: Page) {
-    if (p === 'admin') window.location.hash = '/admin';
-    else if (p === 'releases') window.location.hash = '/releases';
-    else window.location.hash = '/';
+  function push(url: string, newRoute: RouteState) {
+    history.pushState(null, '', url);
+    setRoute(newRoute);
+  }
+
+  function navigatePage(p: Page) {
+    if (p === 'admin') push('/admin', { page: 'admin', filePath: '/', releaseBucket: '' });
+    else if (p === 'releases') push('/releases', { page: 'releases', filePath: '/', releaseBucket: '' });
+    else {
+      const fp = route.page === 'browser' ? route.filePath : '/';
+      push(filePathToUrl(fp), { page: 'browser', filePath: fp, releaseBucket: '' });
+    }
+  }
+
+  function navigateFile(filePath: string) {
+    push(filePathToUrl(filePath), { page: 'browser', filePath, releaseBucket: '' });
   }
 
   function handleLogin(token: string) {
@@ -41,6 +67,8 @@ export function App() {
     localStorage.removeItem('dl_jwt');
   }
 
+  const { page, filePath, releaseBucket } = route;
+
   return (
     <div id="app-root">
       <header class="topbar">
@@ -50,7 +78,7 @@ export function App() {
             <button
               class={`topbar__nav-btn${page === 'browser' ? ' topbar__nav-btn--active' : ''}`}
               id="nav-files"
-              onClick={() => navigate('browser')}
+              onClick={() => navigatePage('browser')}
             >
               files
             </button>
@@ -58,7 +86,7 @@ export function App() {
               <button
                 class={`topbar__nav-btn${page === 'releases' ? ' topbar__nav-btn--active' : ''}`}
                 id="nav-releases"
-                onClick={() => navigate('releases')}
+                onClick={() => navigatePage('releases')}
               >
                 releases
               </button>
@@ -66,7 +94,7 @@ export function App() {
             <button
               class={`topbar__nav-btn topbar__nav-btn--admin${page === 'admin' ? ' topbar__nav-btn--active' : ''}`}
               id="nav-admin"
-              onClick={() => navigate('admin')}
+              onClick={() => navigatePage('admin')}
             >
               admin
             </button>
@@ -87,9 +115,15 @@ export function App() {
 
       <main class="main-content">
         {page === 'browser' && (
-          <FileBrowser jwt={jwt} onLoginRequired={() => setShowLogin(true)} />
+          <FileBrowser
+            jwt={jwt}
+            path={filePath}
+            onNavigate={navigateFile}
+            onLoginRequired={() => setShowLogin(true)}
+          />
         )}
         {page === 'releases' && jwt && hasReleaseScope(jwt) && <ReleasePage jwt={jwt} />}
+        {page === 'release-landing' && <ReleaseLandingPage bucket={releaseBucket} />}
         {page === 'admin' && <AdminPage />}
       </main>
 
