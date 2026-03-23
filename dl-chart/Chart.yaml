@@ -1,0 +1,6 @@
+apiVersion: v2
+name: dl
+description: Minimal Helm chart for dl (file download/upload service, stateful)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

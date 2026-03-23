@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dl
+spec:
+  serviceName: dl
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: dl
+  template:
+    metadata:
+      labels:
+        app: dl
+    spec:
+      containers:
+        - name: dl
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.port }}
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: secrets
+              mountPath: /etc/dl
+              readOnly: true
+      volumes:
+        - name: secrets
+          secret:
+            secretName: dl-secrets
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+        storageClassName: {{ if .Values.persistence.storageClass }}{{ .Values.persistence.storageClass | quote }}{{ else }}null{{ end }}

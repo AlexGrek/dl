@@ -1,0 +1,50 @@
+replicaCount: 1
+
+image:
+  repository: grekodocker/dl
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: true
+  className: "traefik"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    kubernetes.io/ingress.class: "traefik"
+  hosts:
+    - host: "dl.alexgr.space"
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: dl-tls
+      hosts:
+        - dl.alexgr.space
+
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClass: "" # leave empty to use cluster default
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+# Secret values — override by passing -f .secrets.yaml at deploy time.
+# Keys match the app's config format so the same file works for both.
+secrets:
+  webdav_url: "https://your-webdav-server.example.com"
+  webdav_username: "your-username"
+  webdav_password: "your-password"
+  master_key: "change-me-generate-a-long-random-master-key"
+  jwt_secret: "change-me-generate-a-long-random-jwt-secret"
+  db_path: "/data/dl.db"
+  port: "8080"
