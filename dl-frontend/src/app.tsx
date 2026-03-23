@@ -1,100 +1,101 @@
-import { useState } from 'preact/hooks'
-import preactLogo from './assets/preact.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './app.css'
+import { useState, useEffect } from 'preact/hooks';
+import { FileBrowser } from './components/FileBrowser';
+import { AdminPage } from './components/AdminPage';
+import { ReleasePage } from './components/ReleasePage';
+import { LoginModal } from './components/LoginModal';
+import { hasReleaseScope } from './api';
+
+type Page = 'browser' | 'admin' | 'releases';
+
+function getPage(): Page {
+  if (window.location.hash.startsWith('#/admin')) return 'admin';
+  if (window.location.hash.startsWith('#/releases')) return 'releases';
+  return 'browser';
+}
 
 export function App() {
-  const [count, setCount] = useState(0)
+  const [page, setPage] = useState<Page>(getPage);
+  const [jwt, setJwt] = useState<string | null>(() => localStorage.getItem('dl_jwt'));
+  const [showLogin, setShowLogin] = useState(false);
+
+  useEffect(() => {
+    const onHashChange = () => setPage(getPage());
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  function navigate(p: Page) {
+    if (p === 'admin') window.location.hash = '/admin';
+    else if (p === 'releases') window.location.hash = '/releases';
+    else window.location.hash = '/';
+  }
+
+  function handleLogin(token: string) {
+    setJwt(token);
+    localStorage.setItem('dl_jwt', token);
+    setShowLogin(false);
+  }
+
+  function handleLogout() {
+    setJwt(null);
+    localStorage.removeItem('dl_jwt');
+  }
 
   return (
-    <>
-      <section id="center">
-        <div class="hero">
-          <img src={heroImg} class="base" width="170" height="179" alt="" />
-          <img src={preactLogo} class="framework" alt="Preact logo" />
-          <img src={viteLogo} class="vite" alt="Vite logo" />
+    <div id="app-root">
+      <header class="topbar">
+        <div class="topbar__left">
+          <span class="topbar__logo">dl</span>
+          <nav class="topbar__nav" aria-label="main">
+            <button
+              class={`topbar__nav-btn${page === 'browser' ? ' topbar__nav-btn--active' : ''}`}
+              id="nav-files"
+              onClick={() => navigate('browser')}
+            >
+              files
+            </button>
+            {jwt && hasReleaseScope(jwt) && (
+              <button
+                class={`topbar__nav-btn${page === 'releases' ? ' topbar__nav-btn--active' : ''}`}
+                id="nav-releases"
+                onClick={() => navigate('releases')}
+              >
+                releases
+              </button>
+            )}
+            <button
+              class={`topbar__nav-btn topbar__nav-btn--admin${page === 'admin' ? ' topbar__nav-btn--active' : ''}`}
+              id="nav-admin"
+              onClick={() => navigate('admin')}
+            >
+              admin
+            </button>
+          </nav>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/app.tsx</code> and save to test <code>HMR</code>
-          </p>
+        <div class="topbar__right">
+          {jwt ? (
+            <button class="btn btn--muted btn--sm" id="btn-logout" onClick={handleLogout}>
+              logout
+            </button>
+          ) : (
+            <button class="btn btn--sm" id="btn-login" onClick={() => setShowLogin(true)}>
+              login
+            </button>
+          )}
         </div>
-        <button class="counter" onClick={() => setCount((count) => count + 1)}>
-          Count is {count}
-        </button>
-      </section>
+      </header>
 
-      <div class="ticks"></div>
+      <main class="main-content">
+        {page === 'browser' && (
+          <FileBrowser jwt={jwt} onLoginRequired={() => setShowLogin(true)} />
+        )}
+        {page === 'releases' && jwt && hasReleaseScope(jwt) && <ReleasePage jwt={jwt} />}
+        {page === 'admin' && <AdminPage />}
+      </main>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg class="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img class="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://preactjs.com/" target="_blank">
-                <img class="button-icon" src={preactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg class="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg class="button-icon" role="presentation" aria-hidden="true">
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg class="button-icon" role="presentation" aria-hidden="true">
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg class="button-icon" role="presentation" aria-hidden="true">
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg class="button-icon" role="presentation" aria-hidden="true">
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div class="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      {showLogin && (
+        <LoginModal onLogin={handleLogin} onClose={() => setShowLogin(false)} />
+      )}
+    </div>
+  );
 }

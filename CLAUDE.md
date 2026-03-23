@@ -87,20 +87,31 @@ src/
 - Built output goes to `dl-frontend/dist/`, copied to `src/static/` by `make frontend`
 
 ### Deployment
-- Docker buildx, amd64 only
-- Kubernetes: stateful set with persistent BoltDB volume
-- `.secrets.yaml` mounted as file at startup (`-secrets` flag, default `.secrets.yaml`)
 
-**`.secrets.yaml` format (app format, not K8s):**
-```yaml
-webdav_url: "https://host"
-webdav_username: "user"
-webdav_password: "pass"
-master_key: "long-random-string"
-jwt_secret: "long-random-string"
-db_path: "./dl.db"   # optional, default: ./dl.db
-port: "8080"         # optional, default: 8080
+```bash
+make deploy        # build image, push to Docker Hub, helm upgrade --install
+make helm-install  # helm only (image already pushed)
+make helm-uninstall
 ```
+
+- **Image**: `grekodocker/dl:<git-short-sha>` built with `docker buildx`, amd64 only, pushed to Docker Hub
+- **Cluster**: k3s, namespace `dl`, Traefik ingress, cert-manager TLS at `dl.alexgr.space`
+- **StatefulSet**: single replica, PVC at `/data/` for BoltDB, secret mounted at `/etc/dl/secrets.yaml`
+- **Helm chart**: `dl-chart/` — StatefulSet + headless Service + Ingress + Secret
+
+**`.secrets.yaml`** doubles as both the app config and a helm values override (`-f .secrets.yaml`):
+```yaml
+secrets:
+  webdav_url: "https://host"
+  webdav_username: "user"
+  webdav_password: "pass"
+  master_key: "long-random-string"
+  jwt_secret: "long-random-string"
+  db_path: "/data/dl.db"
+  port: "8080"
+```
+
+The binary reads it via `-secrets /etc/dl/secrets.yaml` (injected by the Dockerfile `ENTRYPOINT`).
 
 ## API Docs
 
@@ -110,7 +121,7 @@ See `docs/api.md` for full endpoint reference with request/response examples.
 
 - [x] 1. Create roles for Preact frontend and Go backend
 - [x] 2. Implement backend (WebDAV proxy, BoltDB, JWT, release routes)
-- [ ] 3. Integration tests for backend
+- [x] 3. Integration tests for backend
 - [x] 4. API docs in `/docs`
 - [ ] 5. Frontend main page (file listing, upload)
 - [ ] 6. Admin page (API key generation)

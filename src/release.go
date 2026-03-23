@@ -64,8 +64,9 @@ func (app *App) handleReleaseUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Require release-write:{bucket} or general write scope with matching root_dir.
-	allowed := info.HasScope("write") || info.ScopeValue("release-write") == bucket
+	// Require release-write:{bucket}, release-write (global), or write (global).
+	allowed := info.HasScope("write") || info.HasScope("release-write") ||
+		info.ScopeValue("release-write") == bucket
 	if !allowed {
 		http.Error(w, fmt.Sprintf("release-write:%s scope required", bucket), http.StatusForbidden)
 		return

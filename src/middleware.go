@@ -11,24 +11,47 @@ type ctxKey string
 const tokenInfoKey ctxKey = "tokenInfo"
 
 type TokenInfo struct {
-	KeyID   string
-	Scopes  []string
-	RootDir string
+	KeyID  string
+	Scopes []string
 }
 
-func (t *TokenInfo) HasScope(scope string) bool {
+// CanRead returns true if the token grants read access to the given upstream path.
+// Scopes checked: "read", "write", "read:/prefix", "write:/prefix".
+// "write" implies read for the same path.
+func (t *TokenInfo) CanRead(path string) bool {
 	for _, s := range t.Scopes {
-		if s == scope {
+		if s == "read" || s == "write" {
 			return true
+		}
+		if strings.HasPrefix(s, "read:/") || strings.HasPrefix(s, "write:/") {
+			if pathUnderScope(s, path) {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-// HasScopePrefix returns true if any scope equals prefix or starts with "prefix:".
-func (t *TokenInfo) HasScopePrefix(prefix string) bool {
+// CanWrite returns true if the token grants write access to the given upstream path.
+// Scopes checked: "write", "write:/prefix".
+func (t *TokenInfo) CanWrite(path string) bool {
 	for _, s := range t.Scopes {
-		if s == prefix || strings.HasPrefix(s, prefix+":") {
+		if s == "write" {
+			return true
+		}
+		if strings.HasPrefix(s, "write:/") {
+			if pathUnderScope(s, path) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// HasScope checks for an exact scope match, or a prefix match for "release-write".
+func (t *TokenInfo) HasScope(scope string) bool {
+	for _, s := range t.Scopes {
+		if s == scope {
 			return true
 		}
 	}
@@ -43,6 +66,25 @@ func (t *TokenInfo) ScopeValue(prefix string) string {
 		}
 	}
 	return ""
+}
+
+// pathUnderScope checks whether upstreamPath is at or under the root embedded in a
+// scope string of the form "read:/root" or "write:/root".
+func pathUnderScope(scope, upstreamPath string) bool {
+	colon := strings.Index(scope, ":")
+	if colon < 0 {
+		return false
+	}
+	root := scope[colon+1:]
+	root = "/" + strings.TrimPrefix(root, "/")
+	if !strings.HasSuffix(root, "/") {
+		root += "/"
+	}
+	p := "/" + strings.TrimPrefix(upstreamPath, "/")
+	if !strings.HasSuffix(p, "/") {
+		p += "/"
+	}
+	return strings.HasPrefix(p, root)
 }
 
 func extractBearerToken(r *http.Request) string {
@@ -72,9 +114,8 @@ func (app *App) jwtMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		info := &TokenInfo{
-			KeyID:   claims.KeyID,
-			Scopes:  claims.Scopes,
-			RootDir: claims.RootDir,
+			KeyID:  claims.KeyID,
+			Scopes: claims.Scopes,
 		}
 		ctx := context.WithValue(r.Context(), tokenInfoKey, info)
 		next.ServeHTTP(w, r.WithContext(ctx))

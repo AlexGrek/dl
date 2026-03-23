@@ -16,7 +16,6 @@ type APIKey struct {
 	ID          string    `json:"id"`
 	Description string    `json:"description"`
 	Scopes      []string  `json:"scopes"`
-	RootDir     string    `json:"root_dir,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 

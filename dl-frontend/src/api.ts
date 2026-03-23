@@ -1,0 +1,256 @@
+export interface DavEntry {
+  href: string;   // upstream path, e.g. "/dir1/file.txt"
+  name: string;
+  isDir: boolean;
+  size: number;
+  modified: string;
+}
+
+export interface APIKey {
+  id: string;
+  description: string;
+  scopes: string[];
+  created_at: string;
+}
+
+// ── Auth ──
+
+export async function getToken(apiKey: string): Promise<string> {
+  const res = await fetch('/api/v1/auth/token', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  if (!res.ok) throw new Error('Invalid API key');
+  const data = (await res.json()) as { token: string };
+  return data.token;
+}
+
+// ── WebDAV ──
+
+export async function propfind(apiPath: string, jwt: string): Promise<DavEntry[]> {
+  const res = await fetch(apiPath, {
+    method: 'PROPFIND',
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      Depth: '1',
+    },
+  });
+  if (!res.ok) throw new Error(`PROPFIND ${res.status}`);
+  const text = await res.text();
+  return parsePropfind(text, apiPath);
+}
+
+function parsePropfind(xml: string, requestApiPath: string): DavEntry[] {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xml, 'application/xml');
+  const ns = 'DAV:';
+  const responses = Array.from(doc.getElementsByTagNameNS(ns, 'response'));
+
+  // The upstream path that corresponds to the request
+  // e.g., requestApiPath = "/api/v1/wd/foo/" → upstreamBase = "/foo/"
+  const upstreamBase = requestApiPath.replace(/^\/api\/v1\/wd/, '') || '/';
+  const normalizedBase = upstreamBase.endsWith('/') ? upstreamBase : upstreamBase + '/';
+
+  return responses
+    .map((r): DavEntry | null => {
+      const hrefRaw = r.getElementsByTagNameNS(ns, 'href')[0]?.textContent ?? '';
+      const resourcetype = r.getElementsByTagNameNS(ns, 'resourcetype')[0];
+      const isDir = !!resourcetype?.getElementsByTagNameNS(ns, 'collection')[0];
+      const size = parseInt(
+        r.getElementsByTagNameNS(ns, 'getcontentlength')[0]?.textContent ?? '0',
+        10,
+      );
+      const modified = r.getElementsByTagNameNS(ns, 'getlastmodified')[0]?.textContent ?? '';
+
+      // Normalize href to just its path component
+      let href: string;
+      try {
+        href = new URL(hrefRaw).pathname;
+      } catch {
+        href = hrefRaw;
+      }
+      href = decodeURIComponent(href);
+
+      const name = href.replace(/\/$/, '').split('/').pop() ?? '';
+
+      return { href, name, isDir, size, modified };
+    })
+    .filter((e): e is DavEntry => {
+      if (!e) return false;
+      // Filter out the current directory itself
+      const ep = e.href.endsWith('/') ? e.href : e.href + '/';
+      return ep !== normalizedBase && e.name !== '';
+    })
+    .sort((a, b) => {
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+}
+
+export async function uploadFile(
+  apiPath: string,
+  file: File,
+  jwt: string,
+  onProgress?: (pct: number) => void,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', apiPath);
+    xhr.setRequestHeader('Authorization', `Bearer ${jwt}`);
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Upload failed: ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error('Upload error'));
+    xhr.send(file);
+  });
+}
+
+export async function deleteEntry(apiPath: string, jwt: string): Promise<void> {
+  const res = await fetch(apiPath, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${jwt}` },
+  });
+  if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+}
+
+export async function mkcol(apiPath: string, jwt: string): Promise<void> {
+  const res = await fetch(apiPath, {
+    method: 'MKCOL',
+    headers: { Authorization: `Bearer ${jwt}` },
+  });
+  if (!res.ok) throw new Error(`MKCOL failed: ${res.status}`);
+}
+
+// ── API Key management (master key) ──
+
+export async function listKeys(masterKey: string): Promise<APIKey[]> {
+  const res = await fetch('/api/v1/auth/keys', {
+    headers: { Authorization: `Bearer ${masterKey}` },
+  });
+  if (!res.ok) throw new Error(`Failed to list keys: ${res.status}`);
+  const data = (await res.json()) as APIKey[];
+  return Array.isArray(data) ? data : [];
+}
+
+export interface CreateKeyResponse {
+  key: string;
+  id: string;
+}
+
+export async function createKey(
+  masterKey: string,
+  description: string,
+  scopes: string[],
+): Promise<CreateKeyResponse> {
+  const res = await fetch('/api/v1/auth/keys', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${masterKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ description, scopes }),
+  });
+  if (!res.ok) throw new Error(`Failed to create key: ${res.status}`);
+  return (await res.json()) as CreateKeyResponse;
+}
+
+export async function deleteKey(masterKey: string, rawKey: string): Promise<void> {
+  const res = await fetch(`/api/v1/auth/keys/${encodeURIComponent(rawKey)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${masterKey}` },
+  });
+  if (!res.ok) throw new Error(`Failed to delete key: ${res.status}`);
+}
+
+// ── Release management ──
+
+export async function createReleaseBucket(jwt: string, bucket: string): Promise<void> {
+  const res = await fetch('/api/v1/release/create', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bucket }),
+  });
+  if (!res.ok) throw new Error(`Failed to create bucket: ${res.status}`);
+}
+
+export async function uploadRelease(
+  jwt: string,
+  bucket: string,
+  osArch: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<void> {
+  const apiPath = `/api/v1/release/${encodeURIComponent(bucket)}/${encodeURIComponent(osArch)}/${encodeURIComponent(file.name)}`;
+  await uploadFile(apiPath, file, jwt, onProgress);
+}
+
+/** Decode JWT payload and return scopes array (no signature verification). */
+export function jwtScopes(token: string): string[] {
+  try {
+    const payload = token.split('.')[1];
+    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+    const claims = JSON.parse(json) as { scopes?: string[] };
+    return Array.isArray(claims.scopes) ? claims.scopes : [];
+  } catch {
+    return [];
+  }
+}
+
+export function hasReleaseScope(token: string): boolean {
+  const scopes = jwtScopes(token);
+  return scopes.some(
+    (s) => s === 'release-create' || s === 'release-write' || s.startsWith('release-write:'),
+  );
+}
+
+// ── Utilities ──
+
+export function formatSize(bytes: number): string {
+  if (!bytes) return '—';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  let n = bytes;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+export function formatDate(s: string): string {
+  if (!s) return '—';
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+/** Given a DavEntry's href (upstream path), build the /api/v1/wd API path */
+export function entryApiPath(entry: DavEntry): string {
+  const p = entry.href.startsWith('/') ? entry.href : '/' + entry.href;
+  return `/api/v1/wd${p}`;
+}
+
+/** Given a DavEntry's href (upstream path), build a public /d/ download URL */
+export function entryDownloadUrl(entry: DavEntry): string {
+  const p = entry.href.startsWith('/') ? entry.href : '/' + entry.href;
+  return `/d${p}`;
+}
+
+/** Split an upstream path into breadcrumb segments */
+export function pathSegments(upstreamPath: string): { label: string; path: string }[] {
+  const parts = upstreamPath.split('/').filter(Boolean);
+  const segments: { label: string; path: string }[] = [{ label: 'root', path: '/' }];
+  let acc = '';
+  for (const p of parts) {
+    acc += '/' + p;
+    segments.push({ label: p, path: acc + '/' });
+  }
+  return segments;
+}

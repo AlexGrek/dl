@@ -30,8 +30,8 @@ func newWebDAVProxy(cfg *Config) (*httputil.ReverseProxy, error) {
 }
 
 // handleWebDAV proxies all WebDAV methods to the upstream server.
-// Requires a valid JWT with at minimum read scope; write methods require write scope.
-// If TokenInfo.RootDir is set, requests are restricted to paths under that root.
+// Read methods require CanRead(path); write methods require CanWrite(path).
+// Scopes of the form "read:/prefix" or "write:/prefix" restrict access by path.
 func (app *App) handleWebDAV(w http.ResponseWriter, r *http.Request) {
 	info := tokenFromCtx(r)
 	if info == nil {
@@ -39,24 +39,20 @@ func (app *App) handleWebDAV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	bare := strings.TrimPrefix(r.URL.Path, "/api/v1/wd")
+	if bare == "" {
+		bare = "/"
+	}
+
 	switch r.Method {
 	case http.MethodGet, http.MethodHead, "PROPFIND", "OPTIONS":
-		if !info.HasScope("read") && !info.HasScope("write") {
-			http.Error(w, "read scope required", http.StatusForbidden)
+		if !info.CanRead(bare) {
+			http.Error(w, "read access denied", http.StatusForbidden)
 			return
 		}
 	default:
-		if !info.HasScope("write") {
-			http.Error(w, "write scope required", http.StatusForbidden)
-			return
-		}
-	}
-
-	if info.RootDir != "" {
-		bare := strings.TrimPrefix(r.URL.Path, "/api/v1/wd")
-		root := "/" + strings.TrimPrefix(info.RootDir, "/")
-		if !strings.HasPrefix(bare, root) {
-			http.Error(w, "path outside allowed root", http.StatusForbidden)
+		if !info.CanWrite(bare) {
+			http.Error(w, "write access denied", http.StatusForbidden)
 			return
 		}
 	}

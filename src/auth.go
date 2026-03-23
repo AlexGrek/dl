@@ -15,9 +15,8 @@ const jwtDuration = time.Hour
 // Claims are the JWT payload fields.
 type Claims struct {
 	jwt.RegisteredClaims
-	KeyID   string   `json:"kid"`
-	Scopes  []string `json:"scopes"`
-	RootDir string   `json:"root_dir,omitempty"`
+	KeyID  string   `json:"kid"`
+	Scopes []string `json:"scopes"`
 }
 
 func generateAPIKey() (string, error) {
@@ -35,9 +34,8 @@ func issueJWT(secret string, record *APIKey) (string, error) {
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(jwtDuration)),
 		},
-		KeyID:   record.ID,
-		Scopes:  record.Scopes,
-		RootDir: record.RootDir,
+		KeyID:  record.ID,
+		Scopes: record.Scopes,
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
 }
@@ -73,7 +71,7 @@ func (app *App) handleAuthToken(w http.ResponseWriter, r *http.Request) {
 	if apiKey == app.cfg.MasterKey {
 		record = &APIKey{
 			ID:     "master",
-			Scopes: []string{"read", "write", "release-create"},
+			Scopes: []string{"read", "write", "release-create", "release-write"},
 		}
 	} else {
 		var err error
@@ -105,7 +103,6 @@ func (app *App) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Description string   `json:"description"`
 		Scopes      []string `json:"scopes"`
-		RootDir     string   `json:"root_dir"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -120,7 +117,6 @@ func (app *App) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 		ID:          key[:12],
 		Description: req.Description,
 		Scopes:      req.Scopes,
-		RootDir:     req.RootDir,
 		CreatedAt:   time.Now(),
 	}
 	if err := app.store.PutAPIKey(key, record); err != nil {

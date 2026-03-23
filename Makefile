@@ -1,4 +1,4 @@
-.PHONY: build frontend backend test clean docker helm-install helm-uninstall deploy
+.PHONY: build frontend backend test clean docker helm-install helm-uninstall deploy dev
 
 BINARY   := dl
 IMAGE    := grekodocker/dl
@@ -41,3 +41,9 @@ deploy:
 
 run: backend
 	./$(BINARY) -secrets .secrets.yaml
+
+dev: build
+	@trap 'kill 0' EXIT; \
+	./$(BINARY) -secrets .secrets.yaml -port 8081 & \
+	cd dl-frontend && npm run dev & \
+	wait
