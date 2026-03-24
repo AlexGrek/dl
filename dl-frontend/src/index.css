@@ -1336,9 +1336,9 @@ html, body {
   flex-direction: column;
   gap: 8px;
   padding: 14px 16px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--accent-dim);
+  background: var(--bg-alt);
 }
 
 .pd__install-label {
