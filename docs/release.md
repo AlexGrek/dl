@@ -269,6 +269,100 @@ echo "Updated to $LATEST_VERSION."
 
 ---
 
+## Markdown Documentation Endpoints
+
+Buckets support three optional markdown files that are displayed in the UI and cached in BoltDB.
+
+| File | Location | Purpose |
+|---|---|---|
+| `README.md` | `/rs/{bucket}/README.md` | Product overview / main documentation |
+| `RELEASE.md` | `/rs/{bucket}/RELEASE.md` | Product-level changelog or release notes |
+| `release_notes.md` | `/rs/{bucket}/{version}/release_notes.md` | Per-version detailed release notes |
+
+These files are served through dedicated endpoints and also embedded in the `GET /api/v1/pub/products/{bucket}` response.
+
+### Read product markdown doc
+
+```
+GET /api/v1/pub/release/{bucket}/docs/{doctype}
+```
+
+`{doctype}` is `readme` (→ `README.md`) or `release` (→ `RELEASE.md`).
+
+**Response `200 OK`:**
+```json
+{ "content": "# myapp\n\nThis is my project..." }
+```
+
+**Errors:** `400` invalid doctype · `404` file does not exist · `502` upstream error
+
+---
+
+### Read version release notes
+
+```
+GET /api/v1/pub/release/{bucket}/versions/{version}/docs/release-notes
+```
+
+Pass `latest` as `{version}` to resolve the most recently created version automatically.
+
+**Response `200 OK`:**
+```json
+{ "content": "## v1.5.0\n\n- Fixed crash\n- New feature..." }
+```
+
+**Errors:** `400` invalid bucket/version · `404` file does not exist · `502` upstream error
+
+---
+
+### Write product markdown doc
+
+```
+PUT /api/v1/release/{bucket}/docs/{doctype}
+Authorization: Bearer <jwt>
+Content-Type: application/json
+```
+
+Requires `release-write:{bucket}`, `release-write`, or `write` scope.
+
+**Body:**
+```json
+{ "content": "# myapp\n\nMarkdown content here." }
+```
+
+**Response `204 No Content`** on success.
+
+**Errors:** `400` invalid doctype or body · `403` missing scope · `502` upstream error
+
+---
+
+### Write version release notes
+
+```
+PUT /api/v1/release/{bucket}/versions/{version}/docs/release-notes
+Authorization: Bearer <jwt>
+Content-Type: application/json
+```
+
+Requires `release-write:{bucket}`, `release-write`, or `write` scope.
+
+**Body:**
+```json
+{ "content": "## Changes\n\n- Bug fix #42\n- Performance improvement" }
+```
+
+**Response `204 No Content`** on success.
+
+**Errors:** `400` invalid version or body · `403` missing scope · `502` upstream error
+
+---
+
+### Caching behaviour
+
+All three doc files are cached in BoltDB with a 5-minute TTL (same as other product metadata). Writing via the PUT endpoints immediately evicts the relevant cache entries, so the next read reflects the new content. The full `GET /api/v1/pub/products/{bucket}` response also includes `readme` and `release_doc` fields (populated from cache), and each version object includes `release_notes`.
+
+---
+
 ### Public download
 
 No auth required.

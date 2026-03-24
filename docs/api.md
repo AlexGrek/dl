@@ -171,6 +171,10 @@ See **[docs/release.md](release.md)** for the full release API reference, endpoi
 | `GET /api/v1/pub/release/{bucket}/latest` | none | Latest version + metadata for auto-update |
 | `GET /api/v1/pub/release/{bucket}/versions` | none | All versions, newest-first |
 | `GET /api/v1/pub/release/{bucket}/versions/{version}/targets` | none | OS/arch list for a version |
+| `GET /api/v1/pub/release/{bucket}/docs/{doctype}` | none | Product-level markdown doc (`readme` or `release`) |
+| `GET /api/v1/pub/release/{bucket}/versions/{version}/docs/release-notes` | none | Per-version release notes markdown |
+| `PUT /api/v1/release/{bucket}/docs/{doctype}` | JWT `release-write:{bucket}` | Create or update product markdown doc |
+| `PUT /api/v1/release/{bucket}/versions/{version}/docs/release-notes` | JWT `release-write:{bucket}` | Create or update version release notes |
 | `GET /rs/{bucket}/{version}/{os_arch}/{file}` | none | Download file |
 | `GET /rs/{bucket}/latest/{os_arch}/{file}` | none | Download latest (302 redirect) |
 | `GET /r/{bucket}` | none | Release landing page |

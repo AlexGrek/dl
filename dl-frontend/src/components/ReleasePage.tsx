@@ -1,17 +1,22 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { Folder, FolderPlus, Upload, Download, ChevronRight, ArrowLeft } from 'lucide-preact';
+import { Folder, FolderPlus, Upload, Download, ChevronRight, ArrowLeft, FileText } from 'lucide-preact';
 import {
   type DavEntry,
   propfind,
   createReleaseBucket,
   uploadReleaseMultipart,
   getReleaseInfo,
+  getDoc,
+  getVersionDoc,
+  saveDoc,
+  saveVersionDoc,
   parseSemver,
   bumpSemver,
   jwtScopes,
   formatSize,
   formatDate,
 } from '../api';
+import { Markdown } from './Markdown';
 
 interface Props {
   jwt: string;
@@ -24,6 +29,191 @@ interface Nav {
   version: string | null;  // actual resolved version name
   viaLatest: boolean;
   osArch: string | null;
+}
+
+// ── Doc editor ──────────────────────────────────────────────────────────────
+
+type ProductDocType = 'readme' | 'release';
+
+function ProductDocEditor({
+  jwt, bucket, doctype, label, canWrite,
+}: {
+  jwt: string;
+  bucket: string;
+  doctype: ProductDocType;
+  label: string;
+  canWrite: boolean;
+}) {
+  const [content, setContent] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [preview, setPreview] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setContent(null);
+    setEditing(false);
+    getDoc(bucket, doctype)
+      .then((c) => { setContent(c); setDraft(c); })
+      .catch(() => { setContent(''); setDraft(''); });
+  }, [bucket, doctype]);
+
+  async function save() {
+    setSaving(true);
+    setError('');
+    try {
+      await saveDoc(jwt, bucket, doctype, draft);
+      setContent(draft);
+      setEditing(false);
+      setPreview(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (content === null) return <div class="doc-editor doc-editor--loading"><span class="spinner" /></div>;
+
+  return (
+    <div class="doc-editor">
+      <div class="doc-editor__header">
+        <FileText size={13} class="doc-editor__icon" />
+        <span class="doc-editor__label">{label}</span>
+        {!editing && canWrite && (
+          <button
+            class="btn btn--muted btn--sm"
+            data-doc-edit={doctype}
+            onClick={() => { setDraft(content); setEditing(true); setPreview(false); }}
+          >
+            {content ? 'edit' : 'add'}
+          </button>
+        )}
+        {!editing && content && (
+          <button
+            class="btn btn--muted btn--sm"
+            onClick={() => setPreview((p) => !p)}
+            data-doc-preview={doctype}
+          >
+            {preview ? 'raw' : 'preview'}
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <>
+          <textarea
+            class="input doc-editor__textarea"
+            data-doc-textarea={doctype}
+            value={draft}
+            rows={14}
+            onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
+          />
+          <div class="doc-editor__actions">
+            <button class="btn btn--sm" data-doc-save={doctype} onClick={() => void save()} disabled={saving}>
+              {saving ? <span class="spinner" /> : 'save'}
+            </button>
+            <button class="btn btn--muted btn--sm" onClick={() => setEditing(false)}>cancel</button>
+          </div>
+          {error && <p class="error-msg">{error}</p>}
+        </>
+      ) : preview && content ? (
+        <Markdown content={content} class="doc-editor__preview" />
+      ) : content ? (
+        <pre class="doc-editor__raw">{content}</pre>
+      ) : null}
+    </div>
+  );
+}
+
+function VersionDocEditor({
+  jwt, bucket, version, canWrite,
+}: {
+  jwt: string;
+  bucket: string;
+  version: string;
+  canWrite: boolean;
+}) {
+  const [content, setContent] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [preview, setPreview] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setContent(null);
+    setEditing(false);
+    getVersionDoc(bucket, version)
+      .then((c) => { setContent(c); setDraft(c); })
+      .catch(() => { setContent(''); setDraft(''); });
+  }, [bucket, version]);
+
+  async function save() {
+    setSaving(true);
+    setError('');
+    try {
+      await saveVersionDoc(jwt, bucket, version, draft);
+      setContent(draft);
+      setEditing(false);
+      setPreview(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (content === null) return <div class="doc-editor doc-editor--loading"><span class="spinner" /></div>;
+
+  return (
+    <div class="doc-editor">
+      <div class="doc-editor__header">
+        <FileText size={13} class="doc-editor__icon" />
+        <span class="doc-editor__label">release_notes.md</span>
+        {!editing && canWrite && (
+          <button
+            class="btn btn--muted btn--sm"
+            data-doc-edit="release-notes"
+            onClick={() => { setDraft(content); setEditing(true); setPreview(false); }}
+          >
+            {content ? 'edit' : 'add'}
+          </button>
+        )}
+        {!editing && content && (
+          <button
+            class="btn btn--muted btn--sm"
+            onClick={() => setPreview((p) => !p)}
+            data-doc-preview="release-notes"
+          >
+            {preview ? 'raw' : 'preview'}
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <>
+          <textarea
+            class="input doc-editor__textarea"
+            data-doc-textarea="release-notes"
+            value={draft}
+            rows={14}
+            onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
+          />
+          <div class="doc-editor__actions">
+            <button class="btn btn--sm" data-doc-save="release-notes" onClick={() => void save()} disabled={saving}>
+              {saving ? <span class="spinner" /> : 'save'}
+            </button>
+            <button class="btn btn--muted btn--sm" onClick={() => setEditing(false)}>cancel</button>
+          </div>
+          {error && <p class="error-msg">{error}</p>}
+        </>
+      ) : preview && content ? (
+        <Markdown content={content} class="doc-editor__preview" />
+      ) : content ? (
+        <pre class="doc-editor__raw">{content}</pre>
+      ) : null}
+    </div>
+  );
 }
 
 export function ReleasePage({ jwt }: Props) {
@@ -319,6 +509,22 @@ export function ReleasePage({ jwt }: Props) {
                 <ChevronRight size={12} class="release__bucket-chevron" />
               </button>
             ))}
+          </div>
+        )}
+
+        {/* Markdown docs section */}
+        {!osArch && (
+          <div class="release__docs-section">
+            {!version ? (
+              // Bucket-level: README.md + RELEASE.md
+              <>
+                <ProductDocEditor jwt={jwt} bucket={bucket} doctype="readme" label="README.md" canWrite={canWriteBucket(bucket)} />
+                <ProductDocEditor jwt={jwt} bucket={bucket} doctype="release" label="RELEASE.md" canWrite={canWriteBucket(bucket)} />
+              </>
+            ) : (
+              // Version-level: release_notes.md
+              <VersionDocEditor jwt={jwt} bucket={bucket} version={version} canWrite={canWriteBucket(bucket)} />
+            )}
           </div>
         )}
 

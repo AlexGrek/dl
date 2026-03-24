@@ -218,6 +218,7 @@ export interface VersionDetail {
   version: string;
   date: string;
   notes: string;
+  release_notes: string;
   targets: Record<string, ReleaseFile[]>;
 }
 
@@ -229,6 +230,8 @@ export interface ProductDetail {
   homepage: string;
   license: string;
   tags: string[];
+  readme: string;
+  release_doc: string;
   versions: VersionDetail[];
 }
 
@@ -242,6 +245,65 @@ export async function getProductDetail(bucket: string): Promise<ProductDetail> {
   const res = await fetch(`/api/v1/pub/products/${encodeURIComponent(bucket)}`);
   if (!res.ok) throw new Error(`Failed to load product: ${res.status}`);
   return (await res.json()) as ProductDetail;
+}
+
+// ── Markdown docs (public read, JWT write) ──
+
+export async function getDoc(
+  bucket: string,
+  doctype: 'readme' | 'release',
+): Promise<string> {
+  const res = await fetch(
+    `/api/v1/pub/release/${encodeURIComponent(bucket)}/docs/${doctype}`,
+  );
+  if (res.status === 404) return '';
+  if (!res.ok) throw new Error(`Failed to load doc: ${res.status}`);
+  const data = (await res.json()) as { content: string };
+  return data.content;
+}
+
+export async function getVersionDoc(bucket: string, version: string): Promise<string> {
+  const res = await fetch(
+    `/api/v1/pub/release/${encodeURIComponent(bucket)}/versions/${encodeURIComponent(version)}/docs/release-notes`,
+  );
+  if (res.status === 404) return '';
+  if (!res.ok) throw new Error(`Failed to load release notes: ${res.status}`);
+  const data = (await res.json()) as { content: string };
+  return data.content;
+}
+
+export async function saveDoc(
+  jwt: string,
+  bucket: string,
+  doctype: 'readme' | 'release',
+  content: string,
+): Promise<void> {
+  const res = await fetch(
+    `/api/v1/release/${encodeURIComponent(bucket)}/docs/${doctype}`,
+    {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    },
+  );
+  if (!res.ok) throw new Error(`Failed to save doc: ${res.status}`);
+}
+
+export async function saveVersionDoc(
+  jwt: string,
+  bucket: string,
+  version: string,
+  content: string,
+): Promise<void> {
+  const res = await fetch(
+    `/api/v1/release/${encodeURIComponent(bucket)}/versions/${encodeURIComponent(version)}/docs/release-notes`,
+    {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    },
+  );
+  if (!res.ok) throw new Error(`Failed to save release notes: ${res.status}`);
 }
 
 // ── Release management ──

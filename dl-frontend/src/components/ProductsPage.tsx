@@ -10,6 +10,7 @@ import {
   formatSize,
   formatDate,
 } from '../api';
+import { Markdown } from './Markdown';
 
 interface Props {
   bucket: string; // empty = list view, non-empty = detail view
@@ -246,8 +247,13 @@ function ProductDetailView({ bucket, onBack }: { bucket: string; onBack: () => v
         )}
       </div>
 
-      {/* Description */}
-      {detail.description && <pre class="pd__description">{detail.description.trim()}</pre>}
+      {/* Description (plain text from product.yaml) */}
+      {detail.description && !detail.readme && (
+        <pre class="pd__description">{detail.description.trim()}</pre>
+      )}
+
+      {/* README.md — rendered markdown */}
+      {detail.readme && <Markdown content={detail.readme} class="pd__readme" />}
 
       {/* Quick install for detected platform */}
       {detectedFile && (
@@ -267,6 +273,14 @@ function ProductDetailView({ bucket, onBack }: { bucket: string; onBack: () => v
               <span class="pd__file-size">{formatSize(detectedFile.size)}</span>
             )}
           </a>
+        </div>
+      )}
+
+      {/* RELEASE.md — rendered markdown */}
+      {detail.release_doc && (
+        <div class="pd__section">
+          <span class="pd__section-title">release notes</span>
+          <Markdown content={detail.release_doc} class="pd__release-doc" />
         </div>
       )}
 
@@ -325,6 +339,7 @@ function VersionBlock({
       </div>
 
       {v.notes && <pre class="vblock__notes">{v.notes.trim()}</pre>}
+      {v.release_notes && <Markdown content={v.release_notes} class="vblock__release-notes" />}
 
       {targets.length > 0 && (
         <table class="vblock__table">
