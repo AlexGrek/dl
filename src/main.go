@@ -24,16 +24,16 @@ type App struct {
 
 func main() {
 	secretsPath := flag.String("secrets", ".secrets.yaml", "path to secrets YAML file")
-	portOverride := flag.String("port", "", "override port from secrets file")
+	port := flag.String("port", "8080", "port to listen on")
+	dbPath := flag.String("db", "./dl.db", "path to BoltDB file")
 	flag.Parse()
 
 	cfg, err := loadConfig(*secretsPath)
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
-	if *portOverride != "" {
-		cfg.Port = *portOverride
-	}
+	cfg.Port = *port
+	cfg.DBPath = *dbPath
 
 	store, err := openStore(cfg.DBPath)
 	if err != nil {

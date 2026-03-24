@@ -29,6 +29,7 @@ persistence:
   enabled: true
   size: 1Gi
   storageClass: "" # leave empty to use cluster default
+  dbPath: "/data/dl.db"
 
 resources:
   requests:
@@ -46,5 +47,3 @@ secrets:
   webdav_password: "your-password"
   master_key: "change-me-generate-a-long-random-master-key"
   jwt_secret: "change-me-generate-a-long-random-jwt-secret"
-  db_path: "/data/dl.db"
-  port: "8080"

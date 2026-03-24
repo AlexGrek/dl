@@ -13,8 +13,8 @@ type Config struct {
 	WebDAVPassword string `yaml:"webdav_password"`
 	MasterKey      string `yaml:"master_key"`
 	JWTSecret      string `yaml:"jwt_secret"`
-	DBPath         string `yaml:"db_path"`
-	Port           string `yaml:"port"`
+	DBPath         string `yaml:"-"`
+	Port           string `yaml:"-"`
 }
 
 // configFile is the on-disk format: secrets nested under a "secrets:" key
@@ -33,12 +33,6 @@ func loadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse secrets: %w", err)
 	}
 	cfg := cf.Secrets
-	if cfg.Port == "" {
-		cfg.Port = "8080"
-	}
-	if cfg.DBPath == "" {
-		cfg.DBPath = "./dl.db"
-	}
 	if cfg.WebDAVURL == "" {
 		return nil, fmt.Errorf("webdav_url is required")
 	}

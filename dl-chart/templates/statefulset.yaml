@@ -17,6 +17,11 @@ spec:
         - name: dl
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "-port"
+            - {{ .Values.service.port | quote }}
+            - "-db"
+            - {{ .Values.persistence.dbPath | quote }}
           ports:
             - containerPort: {{ .Values.service.port }}
           resources:

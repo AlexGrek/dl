@@ -454,7 +454,7 @@ export function AdminPage() {
                   type="submit"
                   class="btn"
                   id="btn-create-key"
-                  disabled={creating || !newDesc.trim()}
+                  disabled={creating || !newDesc.trim() || scopeEntries.length === 0}
                 >
                   {creating ? <span class="spinner" /> : 'create key'}
                 </button>
