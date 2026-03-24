@@ -1,29 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
-import { Download, Package, Copy, Link } from 'lucide-preact';
+import { Download, Package, Link } from 'lucide-preact';
 import { type ReleaseInfo, type ReleaseFile, getReleaseInfo, detectPlatform, formatSize } from '../api';
-
-function CopyField({ value, id }: { value: string; id?: string }) {
-  const [copied, setCopied] = useState(false);
-  function copy() {
-    navigator.clipboard.writeText(value).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
-  return (
-    <div class="copy-field">
-      <code class="copy-field__text" id={id}>{value}</code>
-      <button
-        class={`btn btn--sm copy-field__btn${copied ? ' btn--copied' : ''}`}
-        onClick={copy}
-        title="Copy"
-        data-action="copy"
-      >
-        {copied ? <span class="btn__copied-label">copied</span> : <Copy size={12} />}
-      </button>
-    </div>
-  );
-}
+import { InstallBlock } from './InstallBlock';
 
 interface Props {
   bucket: string;
@@ -104,29 +82,8 @@ export function ReleaseLandingPage({ bucket }: Props) {
     return `/rs/${encodeURIComponent(bucket)}/latest/${encodeURIComponent(target)}/${encodeURIComponent(file.name)}`;
   }
 
-  function absDownloadUrl(target: string, file: ReleaseFile): string {
-    return `${window.location.origin}${downloadUrl(target, file)}`;
-  }
-
-  function downloadCommands(target: string, file: ReleaseFile) {
-    const url = absDownloadUrl(target, file);
-    const name = file.name;
-    if (target.startsWith('windows')) {
-      return (
-        <div class="landing__commands" data-target={target}>
-          <p class="landing__commands-title">download via terminal</p>
-          <CopyField value={`curl.exe -LO "${url}"`} id={`cmd-curl-${target}`} />
-          <CopyField value={`Invoke-WebRequest -Uri "${url}" -OutFile "${name}"`} id={`cmd-ps-${target}`} />
-        </div>
-      );
-    }
-    return (
-      <div class="landing__commands" data-target={target}>
-        <p class="landing__commands-title">download via terminal</p>
-        <CopyField value={`curl -LO "${url}"`} id={`cmd-curl-${target}`} />
-        <CopyField value={`wget "${url}"`} id={`cmd-wget-${target}`} />
-      </div>
-    );
+  function absDownloadUrl(target: string, filename: string): string {
+    return `${window.location.origin}/rs/${encodeURIComponent(bucket)}/latest/${encodeURIComponent(target)}/${encodeURIComponent(filename)}`;
   }
 
   return (
@@ -137,30 +94,36 @@ export function ReleaseLandingPage({ bucket }: Props) {
         <p class="landing__version">latest: <code>{info.latest}</code></p>
       </div>
 
-      {detectedFile ? (
-        <div class="landing__primary">
-          <a
-            class="btn landing__download-btn"
-            id="btn-download-detected"
-            href={downloadUrl(detected, detectedFile)}
-            download={detectedFile.name}
-          >
-            <Download size={16} />
-            Download for {platformLabel(detected)}
-          </a>
-          <p class="landing__file-hint">
-            {detectedFile.name}
-            {detectedFile.size > 0 && <> · {formatSize(detectedFile.size)}</>}
-          </p>
-          <div class="landing__permalink">
-            <span class="landing__permalink-label"><Link size={11} /> permalink</span>
-            <CopyField value={absDownloadUrl(detected, detectedFile)} id="copy-permalink" />
-          </div>
-          {downloadCommands(detected, detectedFile)}
-        </div>
-      ) : (
-        <p class="landing__no-detect">Could not detect your platform — choose below.</p>
-      )}
+      <div class="landing__primary">
+        {detectedFile ? (
+          <>
+            <a
+              class="btn landing__download-btn"
+              id="btn-download-detected"
+              href={downloadUrl(detected, detectedFile)}
+              download={detectedFile.name}
+            >
+              <Download size={16} />
+              Download for {platformLabel(detected)}
+            </a>
+            <p class="landing__file-hint">
+              {detectedFile.name}
+              {detectedFile.size > 0 && <> · {formatSize(detectedFile.size)}</>}
+            </p>
+          </>
+        ) : (
+          <p class="landing__no-detect">Platform not detected — select below.</p>
+        )}
+        {targets.length > 0 && (
+          <InstallBlock
+            bucket={bucket}
+            version="latest"
+            targets={info.targets}
+            detected={detected}
+            buildUrl={absDownloadUrl}
+          />
+        )}
+      </div>
 
       {targets.length > 0 && (
         <div class="landing__targets">
@@ -193,7 +156,7 @@ export function ReleaseLandingPage({ bucket }: Props) {
                       >
                         <Download size={13} />
                       </a>
-                      <CopyUrlBtn url={absDownloadUrl(target, file)} target={target} />
+                      <CopyUrlBtn url={absDownloadUrl(target, file.name)} target={target} />
                       {files.filter((f) => f !== file).map((extra) => (
                         <a
                           key={extra.name}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
-import { Download, ChevronLeft, ExternalLink, Package, Tag, Terminal, Copy, Link } from 'lucide-preact';
+import { Download, ChevronLeft, ExternalLink, Package, Tag, Terminal, Link } from 'lucide-preact';
 import {
   type ProductSummary,
   type ProductDetail,
@@ -11,6 +11,7 @@ import {
   formatDate,
 } from '../api';
 import { Markdown } from './Markdown';
+import { InstallBlock } from './InstallBlock';
 
 interface Props {
   bucket: string; // empty = list view, non-empty = detail view
@@ -259,29 +260,31 @@ function ProductDetailView({ bucket, onBack }: { bucket: string; onBack: () => v
       {/* README.md — rendered markdown */}
       {detail.readme && <Markdown content={detail.readme} class="pd__readme" />}
 
-      {/* Quick install for detected platform */}
-      {detectedFile && (
+      {/* Quick install */}
+      {latest && Object.keys(latest.targets).length > 0 && (
         <div class="pd__install">
-          <span class="pd__install-label">
-            quick install — {platformLabel(detected)}
-          </span>
-          <a
-            class="btn pd__install-btn"
-            id="btn-quick-install"
-            href={dlUrl(bucket, 'latest', detected, detectedFile.name)}
-            download={detectedFile.name}
-          >
-            <Download size={15} />
-            {detectedFile.name}
-            {detectedFile.size > 0 && (
-              <span class="pd__file-size">{formatSize(detectedFile.size)}</span>
-            )}
-          </a>
-          <div class="landing__permalink">
-            <span class="landing__permalink-label"><Link size={11} /> permalink</span>
-            <CopyField value={absDlUrl(bucket, 'latest', detected, detectedFile.name)} id="copy-permalink" />
-          </div>
-          <DownloadCommands bucket={bucket} version="latest" target={detected} file={detectedFile.name} />
+          <span class="pd__install-label">quick install</span>
+          {detectedFile && (
+            <a
+              class="btn pd__install-btn"
+              id="btn-quick-install"
+              href={dlUrl(bucket, 'latest', detected, detectedFile.name)}
+              download={detectedFile.name}
+            >
+              <Download size={15} />
+              {detectedFile.name}
+              {detectedFile.size > 0 && (
+                <span class="pd__file-size">{formatSize(detectedFile.size)}</span>
+              )}
+            </a>
+          )}
+          <InstallBlock
+            bucket={bucket}
+            version="latest"
+            targets={latest.targets}
+            detected={detected}
+            buildUrl={(target, filename) => absDlUrl(bucket, 'latest', target, filename)}
+          />
         </div>
       )}
 
@@ -423,29 +426,6 @@ function absDlUrl(bucket: string, version: string, target: string, file: string)
   return `${window.location.origin}${dlUrl(bucket, version, target, file)}`;
 }
 
-function CopyField({ value, id }: { value: string; id?: string }) {
-  const [copied, setCopied] = useState(false);
-  function copy() {
-    navigator.clipboard.writeText(value).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
-  return (
-    <div class="copy-field">
-      <code class="copy-field__text" id={id}>{value}</code>
-      <button
-        class={`btn btn--sm copy-field__btn${copied ? ' btn--copied' : ''}`}
-        onClick={copy}
-        title="Copy"
-        data-action="copy"
-      >
-        {copied ? <span class="btn__copied-label">copied</span> : <Copy size={12} />}
-      </button>
-    </div>
-  );
-}
-
 function CopyUrlBtn({ url, target }: { url: string; target: string }) {
   const [copied, setCopied] = useState(false);
   function copy() {
@@ -467,22 +447,3 @@ function CopyUrlBtn({ url, target }: { url: string; target: string }) {
   );
 }
 
-function DownloadCommands({ bucket, version, target, file }: { bucket: string; version: string; target: string; file: string }) {
-  const url = absDlUrl(bucket, version, target, file);
-  if (target.startsWith('windows')) {
-    return (
-      <div class="landing__commands" data-target={target}>
-        <p class="landing__commands-title">download via terminal</p>
-        <CopyField value={`curl.exe -LO "${url}"`} id={`cmd-curl-${target}`} />
-        <CopyField value={`Invoke-WebRequest -Uri "${url}" -OutFile "${file}"`} id={`cmd-ps-${target}`} />
-      </div>
-    );
-  }
-  return (
-    <div class="landing__commands" data-target={target}>
-      <p class="landing__commands-title">download via terminal</p>
-      <CopyField value={`curl -LO "${url}"`} id={`cmd-curl-${target}`} />
-      <CopyField value={`wget "${url}"`} id={`cmd-wget-${target}`} />
-    </div>
-  );
-}
