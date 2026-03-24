@@ -274,15 +274,27 @@ function ProductDetailView({ bucket, onBack }: { bucket: string; onBack: () => v
       {detail.versions.length > 0 && (
         <div class="pd__versions">
           <span class="pd__section-title">versions</span>
-          {detail.versions.map((v, i) => (
-            <VersionBlock
-              key={v.version}
-              bucket={bucket}
-              version={v}
-              isLatest={i === 0}
-              detected={detected}
-            />
-          ))}
+          <VersionBlock
+            key={detail.versions[0].version}
+            bucket={bucket}
+            version={detail.versions[0]}
+            isLatest={true}
+            detected={detected}
+          />
+          {detail.versions.length > 1 && (
+            <>
+              <span class="pd__section-title pd__section-title--sub">older versions</span>
+              {detail.versions.slice(1).map((v) => (
+                <VersionBlock
+                  key={v.version}
+                  bucket={bucket}
+                  version={v}
+                  isLatest={false}
+                  detected={detected}
+                />
+              ))}
+            </>
+          )}
         </div>
       )}
     </div>

@@ -1267,6 +1267,9 @@ html, body {
   color: var(--fg-muted);
   margin-bottom: 8px;
 }
+.pd__section-title--sub {
+  margin-top: 24px;
+}
 
 /* ── Version block ── */
 .vblock {
