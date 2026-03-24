@@ -88,6 +88,14 @@ func (app *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/pub/release/{bucket}/versions", app.handlePublicReleaseVersions)
 	mux.HandleFunc("GET /api/v1/pub/release/{bucket}/versions/{version}/targets", app.handlePublicReleaseTargetList)
 
+	// Markdown docs — public read.
+	mux.HandleFunc("GET /api/v1/pub/release/{bucket}/docs/{doctype}", app.handleGetProductDoc)
+	mux.HandleFunc("GET /api/v1/pub/release/{bucket}/versions/{version}/docs/release-notes", app.handleGetVersionDoc)
+
+	// Markdown docs — JWT write.
+	mux.Handle("PUT /api/v1/release/{bucket}/docs/{doctype}", app.jwtMiddleware(http.HandlerFunc(app.handleUploadProductDoc)))
+	mux.Handle("PUT /api/v1/release/{bucket}/versions/{version}/docs/release-notes", app.jwtMiddleware(http.HandlerFunc(app.handleUploadVersionDoc)))
+
 	// Public product catalog — no auth.
 	mux.HandleFunc("GET /api/v1/pub/products", app.handleListProducts)
 	mux.HandleFunc("GET /api/v1/pub/products/{bucket}", app.handleGetProduct)

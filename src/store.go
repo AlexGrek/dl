@@ -151,6 +151,17 @@ func (s *Store) ClearCache() error {
 	})
 }
 
+// DeleteCache removes a single cached entry by key.
+func (s *Store) DeleteCache(key string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucketCache))
+		if b == nil {
+			return nil
+		}
+		return b.Delete([]byte(key))
+	})
+}
+
 // PutCache stores data under key with the given TTL (capped at maxCacheTTL).
 func (s *Store) PutCache(key string, data []byte, ttl time.Duration) error {
 	if ttl > maxCacheTTL {

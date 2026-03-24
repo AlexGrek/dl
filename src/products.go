@@ -57,14 +57,17 @@ type ProductDetail struct {
 	Homepage    string          `json:"homepage,omitempty"`
 	License     string          `json:"license,omitempty"`
 	Tags        []string        `json:"tags"`
+	Readme      string          `json:"readme,omitempty"`
+	ReleaseDoc  string          `json:"release_doc,omitempty"`
 	Versions    []VersionDetail `json:"versions"`
 }
 
 type VersionDetail struct {
-	Version string                   `json:"version"`
-	Date    string                   `json:"date,omitempty"`
-	Notes   string                   `json:"notes,omitempty"`
-	Targets map[string][]ReleaseFile `json:"targets"`
+	Version      string                   `json:"version"`
+	Date         string                   `json:"date,omitempty"`
+	Notes        string                   `json:"notes,omitempty"`
+	ReleaseNotes string                   `json:"release_notes,omitempty"`
+	Targets      map[string][]ReleaseFile `json:"targets"`
 }
 
 // ── Handlers ──
@@ -163,6 +166,9 @@ func (app *App) handleGetProduct(w http.ResponseWriter, r *http.Request) {
 		detail.Tags = []string{}
 	}
 
+	detail.Readme = app.fetchMarkdownDoc("/rs/"+bucket+"/README.md", "md:product:"+bucket+":readme")
+	detail.ReleaseDoc = app.fetchMarkdownDoc("/rs/"+bucket+"/RELEASE.md", "md:product:"+bucket+":release")
+
 	// List all version directories, sorted newest-first by modified date.
 	versionEntries, err := app.propfind1("/rs/" + bucket + "/")
 	if err != nil {
@@ -192,6 +198,11 @@ func (app *App) handleGetProduct(w http.ResponseWriter, r *http.Request) {
 			vd.Notes = rm.Notes
 		}
 
+		vd.ReleaseNotes = app.fetchMarkdownDoc(
+			"/rs/"+bucket+"/"+ve.name+"/release_notes.md",
+			"md:version:"+bucket+":"+ve.name+":release-notes",
+		)
+
 		if targets, err := app.listLatestTargets(bucket, ve.name); err == nil {
 			vd.Targets = targets
 		}
@@ -208,6 +219,31 @@ func (app *App) handleGetProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	app.store.PutCache(cacheKey, data, listCacheTTL)
 	w.Write(data)
+}
+
+// ── Markdown doc fetching + caching ──
+
+// fetchMarkdownDoc fetches a markdown file from WebDAV and caches it in BoltDB.
+// Returns empty string on miss (also cached to avoid repeated lookups).
+func (app *App) fetchMarkdownDoc(webdavPath, cacheKey string) string {
+	if cached, ok := app.store.GetCache(cacheKey); ok {
+		var content string
+		if json.Unmarshal(cached, &content) == nil {
+			return content // empty string = cached miss
+		}
+	}
+
+	data, err := app.fetchWebDAVFile(webdavPath)
+	if err != nil {
+		miss, _ := json.Marshal("")
+		app.store.PutCache(cacheKey, miss, metaCacheTTL)
+		return ""
+	}
+
+	content := strings.TrimSpace(string(data))
+	jsonData, _ := json.Marshal(content)
+	app.store.PutCache(cacheKey, jsonData, metaCacheTTL)
+	return content
 }
 
 // ── WebDAV file fetching + caching ──
