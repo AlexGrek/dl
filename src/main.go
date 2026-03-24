@@ -72,6 +72,9 @@ func (app *App) registerRoutes(mux *http.ServeMux) {
 	// WebDAV proxy — all HTTP methods, JWT required.
 	mux.Handle("/api/v1/wd/", app.jwtMiddleware(http.HandlerFunc(app.handleWebDAV)))
 
+	// WebDAV direct access — Basic Auth with webdav-read/webdav-write API keys (no JWT).
+	mux.HandleFunc("/wd/", app.handleDirectWebDAV)
+
 	// Release management — JWT required.
 	mux.Handle("POST /api/v1/release/create", app.jwtMiddleware(http.HandlerFunc(app.handleReleaseCreate)))
 	mux.Handle("POST /api/v1/release/{bucket}/upload", app.jwtMiddleware(http.HandlerFunc(app.handleReleaseMultipartUpload)))

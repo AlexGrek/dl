@@ -10,6 +10,7 @@ export interface APIKey {
   id: string;
   description: string;
   scopes: string[];
+  root_dir?: string;
   created_at: string;
 }
 
@@ -148,6 +149,7 @@ export async function createKey(
   masterKey: string,
   description: string,
   scopes: string[],
+  rootDir?: string,
 ): Promise<CreateKeyResponse> {
   const res = await fetch('/api/v1/auth/keys', {
     method: 'POST',
@@ -155,7 +157,7 @@ export async function createKey(
       Authorization: `Bearer ${masterKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ description, scopes }),
+    body: JSON.stringify({ description, scopes, root_dir: rootDir || undefined }),
   });
   if (!res.ok) throw new Error(`Failed to create key: ${res.status}`);
   return (await res.json()) as CreateKeyResponse;

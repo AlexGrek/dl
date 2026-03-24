@@ -909,6 +909,24 @@ html, body {
   background: color-mix(in srgb, var(--accent-admin) 10%, transparent);
 }
 
+.scope-tag--webdav-read {
+  color: #4fc3f7;
+  border-color: #4fc3f755;
+  background: color-mix(in srgb, #4fc3f7 10%, transparent);
+}
+
+.scope-tag--webdav-write {
+  color: #ff8a65;
+  border-color: #ff8a6555;
+  background: color-mix(in srgb, #ff8a65 10%, transparent);
+}
+
+.scope-tag--dir {
+  color: var(--fg-muted);
+  border-color: var(--border);
+  font-style: italic;
+}
+
 .scope-tag__remove {
   display: inline-flex;
   align-items: center;

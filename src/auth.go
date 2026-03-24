@@ -80,6 +80,13 @@ func (app *App) handleAuthToken(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid api key", http.StatusUnauthorized)
 			return
 		}
+		// WebDAV direct-access keys must not be exchanged for JWT.
+		for _, s := range record.Scopes {
+			if s == "webdav-read" || s == "webdav-write" {
+				http.Error(w, "webdav keys cannot be exchanged for jwt", http.StatusForbidden)
+				return
+			}
+		}
 	}
 
 	tok, err := issueJWT(app.cfg.JWTSecret, record)
@@ -103,6 +110,7 @@ func (app *App) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Description string   `json:"description"`
 		Scopes      []string `json:"scopes"`
+		RootDir     string   `json:"root_dir"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -117,6 +125,7 @@ func (app *App) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 		ID:          key[:12],
 		Description: req.Description,
 		Scopes:      req.Scopes,
+		RootDir:     req.RootDir,
 		CreatedAt:   time.Now(),
 	}
 	if err := app.store.PutAPIKey(key, record); err != nil {

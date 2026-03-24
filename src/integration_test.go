@@ -542,3 +542,222 @@ func TestSPA_Fallback(t *testing.T) {
 		t.Errorf("expected HTML content, got: %.200s", string(body))
 	}
 }
+
+// ── handleDirectWebDAV (/wd/) ─────────────────────────────────────────────────
+
+// wdReq builds a request to /wd/ with HTTP Basic Auth (username "dl").
+func wdReq(t *testing.T, method, path, apiKey string, body io.Reader) *http.Request {
+	t.Helper()
+	req, err := http.NewRequest(method, testBaseURL+"/wd"+path, body)
+	if err != nil {
+		t.Fatalf("building request: %v", err)
+	}
+	req.SetBasicAuth("dl", apiKey)
+	return req
+}
+
+func TestDirectWebDAV_NoAuth(t *testing.T) {
+	req, _ := http.NewRequest("PROPFIND", testBaseURL+"/wd/", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get("WWW-Authenticate") == "" {
+		t.Error("expected WWW-Authenticate header on 401")
+	}
+}
+
+func TestDirectWebDAV_WrongUsername(t *testing.T) {
+	key := createAPIKey(t, "wd-wrong-user", []string{"webdav-read"}, "")
+	t.Cleanup(func() { deleteAPIKeyFromStore(t, key) })
+
+	req, _ := http.NewRequest("PROPFIND", testBaseURL+"/wd/", nil)
+	req.SetBasicAuth("notdl", key)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestDirectWebDAV_InvalidKey(t *testing.T) {
+	req, _ := http.NewRequest("PROPFIND", testBaseURL+"/wd/", nil)
+	req.SetBasicAuth("dl", "dlk_totallyboguskey")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestDirectWebDAV_NonWebDAVKey_Forbidden(t *testing.T) {
+	// A regular read key has no webdav-* scope → 403 at /wd/.
+	key := createAPIKey(t, "regular-read", []string{"read"}, "")
+	t.Cleanup(func() { deleteAPIKeyFromStore(t, key) })
+
+	resp, err := http.DefaultClient.Do(wdReq(t, "PROPFIND", "/", key, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestDirectWebDAV_ReadOnly_PROPFIND(t *testing.T) {
+	key := createAPIKey(t, "wd-read-only", []string{"webdav-read"}, "")
+	t.Cleanup(func() { deleteAPIKeyFromStore(t, key) })
+
+	req := wdReq(t, "PROPFIND", "/", key, nil)
+	req.Header.Set("Depth", "1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusMultiStatus && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Errorf("expected 207 or 200, got %d: %s", resp.StatusCode, body)
+	}
+}
+
+func TestDirectWebDAV_ReadOnly_PUTBlocked(t *testing.T) {
+	key := createAPIKey(t, "wd-read-only-put", []string{"webdav-read"}, "")
+	t.Cleanup(func() { deleteAPIKeyFromStore(t, key) })
+
+	resp, err := http.DefaultClient.Do(wdReq(t, "PUT", "/should-fail.txt", key, strings.NewReader("data")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestDirectWebDAV_ReadWrite(t *testing.T) {
+	key := createAPIKey(t, "wd-read-write", []string{"webdav-write"}, "")
+	t.Cleanup(func() { deleteAPIKeyFromStore(t, key) })
+
+	suffix := randSuffix()
+	dir := "/wd-rw-" + suffix
+	file := dir + "/data.txt"
+	content := "wd-content-" + suffix
+
+	// MKCOL
+	mkcolResp, err := http.DefaultClient.Do(wdReq(t, "MKCOL", dir, key, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mkcolResp.Body.Close()
+	if mkcolResp.StatusCode != http.StatusCreated {
+		t.Fatalf("MKCOL: expected 201, got %d", mkcolResp.StatusCode)
+	}
+
+	// PUT
+	putResp, err := http.DefaultClient.Do(wdReq(t, "PUT", file, key, strings.NewReader(content)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	putResp.Body.Close()
+	if putResp.StatusCode >= 300 {
+		t.Fatalf("PUT: expected 2xx, got %d", putResp.StatusCode)
+	}
+
+	// GET
+	getResp, err := http.DefaultClient.Do(wdReq(t, "GET", file, key, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer getResp.Body.Close()
+	got, _ := io.ReadAll(getResp.Body)
+	if string(got) != content {
+		t.Errorf("GET: expected %q, got %q", content, string(got))
+	}
+}
+
+func TestDirectWebDAV_RootDir_Allowed(t *testing.T) {
+	// Seed a file in /wd-root-<suffix>/ via master JWT first.
+	jwt := getMasterJWT(t)
+	suffix := randSuffix()
+	dir := "/wd-root-" + suffix
+	file := dir + "/secret.txt"
+	content := "secret-" + suffix
+
+	mkcolReq, _ := http.NewRequest("MKCOL", testBaseURL+"/api/v1/wd"+dir, nil)
+	mkcolReq.Header.Set("Authorization", "Bearer "+jwt)
+	mkcolResp, err := http.DefaultClient.Do(mkcolReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mkcolResp.Body.Close()
+
+	putReq, _ := http.NewRequest("PUT", testBaseURL+"/api/v1/wd"+file, strings.NewReader(content))
+	putReq.Header.Set("Authorization", "Bearer "+jwt)
+	putResp, err := http.DefaultClient.Do(putReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putResp.Body.Close()
+
+	// Key restricted to that directory.
+	key := createAPIKey(t, "wd-rootdir", []string{"webdav-read"}, dir)
+	t.Cleanup(func() { deleteAPIKeyFromStore(t, key) })
+
+	// Reading a file inside the root dir must succeed.
+	getResp, err := http.DefaultClient.Do(wdReq(t, "GET", file, key, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer getResp.Body.Close()
+	got, _ := io.ReadAll(getResp.Body)
+	if string(got) != content {
+		t.Errorf("expected %q, got %q", content, string(got))
+	}
+}
+
+func TestDirectWebDAV_RootDir_Blocked(t *testing.T) {
+	suffix := randSuffix()
+	allowedDir := "/wd-allowed-" + suffix
+
+	// Key restricted to allowedDir must not reach /wd-other/.
+	key := createAPIKey(t, "wd-rootdir-blocked", []string{"webdav-read"}, allowedDir)
+	t.Cleanup(func() { deleteAPIKeyFromStore(t, key) })
+
+	resp, err := http.DefaultClient.Do(wdReq(t, "GET", "/wd-other-"+suffix+"/file.txt", key, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for path outside root_dir, got %d", resp.StatusCode)
+	}
+}
+
+func TestAuthToken_WebDAVKeyBlocked(t *testing.T) {
+	// webdav-* keys must not be exchangeable for JWTs.
+	key := createAPIKey(t, "wd-no-jwt", []string{"webdav-read"}, "")
+	t.Cleanup(func() { deleteAPIKeyFromStore(t, key) })
+
+	req, _ := http.NewRequest("POST", testBaseURL+"/api/v1/auth/token", nil)
+	req.Header.Set("Authorization", "Bearer "+key)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for webdav key JWT exchange, got %d", resp.StatusCode)
+	}
+}

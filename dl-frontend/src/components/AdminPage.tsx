@@ -22,11 +22,17 @@ interface ReleasCreateScope {
   kind: 'release-create';
 }
 
-type ScopeEntry = FileScope | ReleaseWriteScope | ReleasCreateScope;
+interface WebDAVScope {
+  kind: 'webdav';
+  access: 'read' | 'write'; // read = read-only, write = read+write
+}
+
+type ScopeEntry = FileScope | ReleaseWriteScope | ReleasCreateScope | WebDAVScope;
 
 function entryToScope(e: ScopeEntry): string {
   if (e.kind === 'file') return e.path ? `${e.access}:${normPath(e.path)}` : e.access;
   if (e.kind === 'release-write') return `release-write:${e.bucket}`;
+  if (e.kind === 'webdav') return `webdav-${e.access}`;
   return 'release-create';
 }
 
@@ -38,6 +44,8 @@ function scopeToEntry(s: string): ScopeEntry | null {
   if (s === 'release-create') return { kind: 'release-create' };
   if (s === 'release-write') return { kind: 'release-write', bucket: '' }; // global — show as wildcard
   if (s.startsWith('release-write:')) return { kind: 'release-write', bucket: s.slice('release-write:'.length) };
+  if (s === 'webdav-read') return { kind: 'webdav', access: 'read' };
+  if (s === 'webdav-write') return { kind: 'webdav', access: 'write' };
   if (s === 'read') return { kind: 'file', access: 'read', path: '' };
   if (s === 'write') return { kind: 'file', access: 'write', path: '' };
   if (s.startsWith('read:/')) return { kind: 'file', access: 'read', path: s.slice('read:'.length) };
@@ -61,6 +69,9 @@ export function AdminPage() {
   const [addFilePath, setAddFilePath] = useState('');
   // "add release-write" form
   const [addBucket, setAddBucket] = useState('');
+  // webdav direct-access key form
+  const [wdAccess, setWdAccess] = useState<'read' | 'write'>('read');
+  const [wdRootDir, setWdRootDir] = useState('');
 
   // New key form
   const [newDesc, setNewDesc] = useState('');
@@ -127,18 +138,30 @@ export function AdminPage() {
     setScopeEntries((prev) => prev.filter((_, i) => i !== idx));
   }
 
+  function addWebDAVScope() {
+    const entry: WebDAVScope = { kind: 'webdav', access: wdAccess };
+    // Only one webdav scope allowed per key
+    if (scopeEntries.some((e) => e.kind === 'webdav')) return;
+    setScopeEntries((prev) => [...prev, entry]);
+  }
+
+  // Derive root_dir from webdav scope's path input (separate from scope entries)
+  const webdavEntry = scopeEntries.find((e) => e.kind === 'webdav') as WebDAVScope | undefined;
+
   async function handleCreate(e: Event) {
     e.preventDefault();
     if (!masterKey.trim() || !newDesc.trim()) return;
     const scopes = scopeEntries.map(entryToScope);
+    const rootDir = webdavEntry && wdRootDir.trim() ? normPath(wdRootDir.trim()) : undefined;
     setCreating(true);
     setCreateError('');
     setCreatedKey('');
     try {
-      const res = await createKey(masterKey.trim(), newDesc.trim(), scopes);
+      const res = await createKey(masterKey.trim(), newDesc.trim(), scopes, rootDir);
       setCreatedKey(res.key);
       setNewDesc('');
       setScopeEntries([]);
+      setWdRootDir('');
       await handleLoad();
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Failed to create key');
@@ -148,6 +171,7 @@ export function AdminPage() {
   }
 
   const hasReleaseCreate = scopeEntries.some((e) => e.kind === 'release-create');
+  const hasWebDAV = scopeEntries.some((e) => e.kind === 'webdav');
 
   return (
     <div class="admin admin-theme">
@@ -213,15 +237,19 @@ export function AdminPage() {
                         <div class="scope-tags">
                           {key.scopes.map((s) => {
                             const e = scopeToEntry(s);
+                            let cls = '';
+                            if (e?.kind === 'file') cls = ` scope-tag--${e.access}`;
+                            else if (e?.kind === 'release-write' || e?.kind === 'release-create') cls = ' scope-tag--release';
+                            else if (e?.kind === 'webdav') cls = ` scope-tag--webdav-${e.access}`;
                             return (
-                              <span
-                                class={`tag scope-tag${e?.kind === 'file' ? ` scope-tag--${e.access}` : e?.kind === 'release-write' || e?.kind === 'release-create' ? ' scope-tag--release' : ''}`}
-                                key={s}
-                              >
-                                {s}
-                              </span>
+                              <span class={`tag scope-tag${cls}`} key={s}>{s}</span>
                             );
                           })}
+                          {key.root_dir && (
+                            <span class="tag scope-tag scope-tag--dir" title="root directory restriction">
+                              dir:{key.root_dir}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td class="file-table__date">
@@ -278,23 +306,26 @@ export function AdminPage() {
                 {/* Current scopes */}
                 {scopeEntries.length > 0 && (
                   <div class="scope-tags" style="margin-bottom:8px">
-                    {scopeEntries.map((entry, i) => (
-                      <span
-                        key={entryToScope(entry)}
-                        class={`tag scope-tag${entry.kind === 'file' ? ` scope-tag--${entry.access}` : ' scope-tag--release'}`}
-                      >
-                        {entryToScope(entry)}
-                        <button
-                          type="button"
-                          class="scope-tag__remove"
-                          data-scope={entryToScope(entry)}
-                          onClick={() => removeScope(i)}
-                          aria-label="remove scope"
-                        >
-                          <X size={10} />
-                        </button>
-                      </span>
-                    ))}
+                    {scopeEntries.map((entry, i) => {
+                      let cls = '';
+                      if (entry.kind === 'file') cls = ` scope-tag--${entry.access}`;
+                      else if (entry.kind === 'release-write' || entry.kind === 'release-create') cls = ' scope-tag--release';
+                      else if (entry.kind === 'webdav') cls = ` scope-tag--webdav-${entry.access}`;
+                      return (
+                        <span key={entryToScope(entry)} class={`tag scope-tag${cls}`}>
+                          {entryToScope(entry)}
+                          <button
+                            type="button"
+                            class="scope-tag__remove"
+                            data-scope={entryToScope(entry)}
+                            onClick={() => removeScope(i)}
+                            aria-label="remove scope"
+                          >
+                            <X size={10} />
+                          </button>
+                        </span>
+                      );
+                    })}
                   </div>
                 )}
 
@@ -365,6 +396,46 @@ export function AdminPage() {
                   <span>release-create</span>
                   <span class="scope-builder__hint">(can create new release buckets)</span>
                 </label>
+
+                {/* WebDAV direct-access key */}
+                <div class="scope-builder__row">
+                  <span class="scope-builder__label">webdav direct</span>
+                  <select
+                    class="input scope-builder__select"
+                    id="select-wd-access"
+                    value={wdAccess}
+                    onChange={(e) => setWdAccess((e.target as HTMLSelectElement).value as 'read' | 'write')}
+                    disabled={hasWebDAV}
+                  >
+                    <option value="read">read-only</option>
+                    <option value="write">read+write</option>
+                  </select>
+                  <input
+                    class="input"
+                    id="input-wd-root-dir"
+                    type="text"
+                    placeholder="/root-dir (empty = global)"
+                    value={wdRootDir}
+                    style="flex:1"
+                    onInput={(e) => setWdRootDir((e.target as HTMLInputElement).value)}
+                    disabled={hasWebDAV}
+                  />
+                  <button
+                    type="button"
+                    class="btn btn--muted btn--sm"
+                    id="btn-add-wd-scope"
+                    onClick={addWebDAVScope}
+                    disabled={hasWebDAV}
+                  >
+                    + add
+                  </button>
+                </div>
+                {hasWebDAV && (
+                  <p class="scope-builder__hint" style="margin-top:4px">
+                    Basic Auth: user <code>dl</code>, password = this API key. URL: <code>/wd/…</code>
+                    {wdRootDir.trim() && <> — restricted to <code>{normPath(wdRootDir.trim())}</code></>}
+                  </p>
+                )}
               </div>
 
               {createError && <p class="error-msg">{createError}</p>}

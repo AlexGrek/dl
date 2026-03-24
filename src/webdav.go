@@ -29,6 +29,92 @@ func newWebDAVProxy(cfg *Config) (*httputil.ReverseProxy, error) {
 	return proxy, nil
 }
 
+// webdavDirectTokenInfo converts a WebDAV direct-access key into a TokenInfo
+// by mapping webdav-read/webdav-write scopes and RootDir into path-scoped read/write scopes.
+func webdavDirectTokenInfo(record *APIKey) *TokenInfo {
+	var hasRead, hasWrite bool
+	for _, s := range record.Scopes {
+		if s == "webdav-read" {
+			hasRead = true
+		}
+		if s == "webdav-write" {
+			hasWrite = true
+		}
+	}
+	if !hasRead && !hasWrite {
+		return nil
+	}
+
+	var scopes []string
+	if record.RootDir != "" {
+		dir := "/" + strings.TrimPrefix(record.RootDir, "/")
+		scopes = append(scopes, "read:"+dir)
+		if hasWrite {
+			scopes = append(scopes, "write:"+dir)
+		}
+	} else {
+		scopes = append(scopes, "read")
+		if hasWrite {
+			scopes = append(scopes, "write")
+		}
+	}
+
+	return &TokenInfo{KeyID: record.ID, Scopes: scopes}
+}
+
+// handleDirectWebDAV proxies WebDAV requests authenticated via HTTP Basic Auth.
+// Username must be "dl"; password is the raw API key (webdav-read or webdav-write scope required).
+// These keys are never exchanged for JWTs — they authenticate directly here.
+func (app *App) handleDirectWebDAV(w http.ResponseWriter, r *http.Request) {
+	username, password, ok := r.BasicAuth()
+	if !ok || username != "dl" {
+		w.Header().Set("WWW-Authenticate", `Basic realm="dl"`)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	record, err := app.store.GetAPIKey(password)
+	if err != nil {
+		w.Header().Set("WWW-Authenticate", `Basic realm="dl"`)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	info := webdavDirectTokenInfo(record)
+	if info == nil {
+		http.Error(w, "forbidden: not a webdav key", http.StatusForbidden)
+		return
+	}
+
+	bare := strings.TrimPrefix(r.URL.Path, "/wd")
+	if bare == "" {
+		bare = "/"
+	}
+	if strings.Contains(bare, "\x00") || strings.Contains(bare, "..") {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, "PROPFIND", "OPTIONS":
+		if !info.CanRead(bare) {
+			http.Error(w, "read access denied", http.StatusForbidden)
+			return
+		}
+	default:
+		if !info.CanWrite(bare) {
+			http.Error(w, "write access denied", http.StatusForbidden)
+			return
+		}
+	}
+
+	// Pre-strip /wd so the proxy director (which strips /api/v1/wd) leaves the path intact.
+	r2 := r.Clone(r.Context())
+	r2.URL.Path = bare
+	r2.URL.RawPath = ""
+	app.wdProxy.ServeHTTP(w, r2)
+}
+
 // handleWebDAV proxies all WebDAV methods to the upstream server.
 // Read methods require CanRead(path); write methods require CanWrite(path).
 // Scopes of the form "read:/prefix" or "write:/prefix" restrict access by path.
