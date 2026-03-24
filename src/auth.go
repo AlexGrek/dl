@@ -168,7 +168,11 @@ func (app *App) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key required", http.StatusBadRequest)
 		return
 	}
-	if err := app.store.DeleteAPIKey(key); err != nil {
+	if err := app.store.DeleteAPIKeyByID(key); err != nil {
+		if err.Error() == "key not found" {
+			http.Error(w, "key not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, "store error", http.StatusInternalServerError)
 		return
 	}

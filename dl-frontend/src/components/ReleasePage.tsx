@@ -576,10 +576,22 @@ export function ReleasePage({ jwt }: Props) {
                 class="input"
                 type="text"
                 placeholder="linux-amd64"
+                list="osarch-options"
                 value={uploadOsArch}
                 style="max-width:180px"
                 onInput={(e) => setUploadOsArch((e.target as HTMLInputElement).value)}
               />
+              <datalist id="osarch-options">
+                <option value="linux-amd64" />
+                <option value="linux-arm64" />
+                <option value="linux-arm" />
+                <option value="linux-386" />
+                <option value="darwin-amd64" />
+                <option value="darwin-arm64" />
+                <option value="windows-amd64" />
+                <option value="windows-386" />
+                <option value="freebsd-amd64" />
+              </datalist>
             </div>
 
             <div style="margin-top:8px">

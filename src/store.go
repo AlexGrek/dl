@@ -92,6 +92,29 @@ func (s *Store) DeleteAPIKey(key string) error {
 	})
 }
 
+func (s *Store) DeleteAPIKeyByID(id string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucketAPIKeys))
+		var found []byte
+		if err := b.ForEach(func(k, v []byte) error {
+			var record APIKey
+			if err := json.Unmarshal(v, &record); err != nil {
+				return err
+			}
+			if record.ID == id {
+				found = k
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		if found == nil {
+			return fmt.Errorf("key not found")
+		}
+		return b.Delete(found)
+	})
+}
+
 func (s *Store) ListAPIKeys() ([]APIKey, error) {
 	var keys []APIKey
 	err := s.db.View(func(tx *bolt.Tx) error {
