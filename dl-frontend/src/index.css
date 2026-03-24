@@ -986,6 +986,16 @@ html, body {
   font-size: 11px;
 }
 
+.scope-builder__warning {
+  font-size: 11px;
+  color: #e8a838;
+  border: 1px solid #e8a83855;
+  background: color-mix(in srgb, #e8a838 8%, transparent);
+  border-radius: 3px;
+  padding: 6px 8px;
+  margin: 4px 0;
+}
+
 .new-key-banner {
   background: var(--accent-dim);
   border: 1px solid var(--accent);

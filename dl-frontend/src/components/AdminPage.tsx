@@ -398,6 +398,11 @@ export function AdminPage() {
                 </label>
 
                 {/* WebDAV direct-access key */}
+                <p class="scope-builder__warning">
+                  ⚠ WebDAV direct keys embed long-lived credentials. The API key is sent as a
+                  Basic Auth password on every request — use HTTPS only, rotate regularly, and
+                  prefer narrow <code>root_dir</code> restrictions.
+                </p>
                 <div class="scope-builder__row">
                   <span class="scope-builder__label">webdav direct</span>
                   <select
