@@ -167,7 +167,10 @@ See **[docs/release.md](release.md)** for the full release API reference, endpoi
 | `POST /api/v1/release/create` | JWT `release-create` | Create a bucket |
 | `POST /api/v1/release/{bucket}/upload` | JWT `release-write:{bucket}` | Multipart upload |
 | `PUT /api/v1/release/{bucket}/{version}/{os_arch}/{file...}` | JWT `release-write:{bucket}` | Streaming upload |
-| `GET /api/v1/pub/release/{bucket}` | none | Latest version + target list |
+| `GET /api/v1/pub/release/{bucket}` | none | Latest version + target list (with files) |
+| `GET /api/v1/pub/release/{bucket}/latest` | none | Latest version + metadata for auto-update |
+| `GET /api/v1/pub/release/{bucket}/versions` | none | All versions, newest-first |
+| `GET /api/v1/pub/release/{bucket}/versions/{version}/targets` | none | OS/arch list for a version |
 | `GET /rs/{bucket}/{version}/{os_arch}/{file}` | none | Download file |
 | `GET /rs/{bucket}/latest/{os_arch}/{file}` | none | Download latest (302 redirect) |
 | `GET /r/{bucket}` | none | Release landing page |

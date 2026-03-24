@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
+	"time"
 )
 
 // POST /api/v1/release/create
@@ -383,6 +385,157 @@ func (app *App) propfind1(upstreamPath string) ([]propfindEntry, error) {
 		})
 	}
 	return entries, nil
+}
+
+// VersionInfo describes a single release version for the auto-update API.
+type VersionInfo struct {
+	Version string `json:"version"`
+	Date    string `json:"date,omitempty"`
+	Notes   string `json:"notes,omitempty"`
+}
+
+// GET /api/v1/pub/release/{bucket}/latest
+// No auth required. Returns the latest version string, release metadata (date, notes),
+// and the sorted list of available os/arch targets.
+//
+// Intended for auto-update checks: compare the returned "version" to the running binary's
+// version to decide whether an update is available.
+func (app *App) handlePublicReleaseLatest(w http.ResponseWriter, r *http.Request) {
+	bucket := r.PathValue("bucket")
+	if strings.ContainsAny(bucket, "/\\") {
+		http.Error(w, "invalid bucket", http.StatusBadRequest)
+		return
+	}
+
+	version, err := app.resolveLatestVersion(bucket)
+	if err != nil {
+		http.Error(w, "bucket not found or has no versions", http.StatusNotFound)
+		return
+	}
+
+	result := map[string]any{
+		"bucket":  bucket,
+		"version": version,
+	}
+
+	if rm := app.fetchReleaseMeta(bucket, version); rm != nil {
+		if rm.Date != "" {
+			result["date"] = rm.Date
+		}
+		if rm.Notes != "" {
+			result["notes"] = rm.Notes
+		}
+	}
+
+	var targetNames []string
+	if targets, err := app.listLatestTargets(bucket, version); err == nil {
+		for t := range targets {
+			targetNames = append(targetNames, t)
+		}
+		sort.Strings(targetNames)
+	}
+	if targetNames == nil {
+		targetNames = []string{}
+	}
+	result["targets"] = targetNames
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+	json.NewEncoder(w).Encode(result)
+}
+
+// GET /api/v1/pub/release/{bucket}/versions
+// No auth required. Returns all available versions for the bucket, sorted newest-first
+// by the last-modified timestamp of the version directory.
+//
+// Each entry includes the version string and, if a release.yaml exists, its date and notes.
+func (app *App) handlePublicReleaseVersions(w http.ResponseWriter, r *http.Request) {
+	bucket := r.PathValue("bucket")
+	if strings.ContainsAny(bucket, "/\\") {
+		http.Error(w, "invalid bucket", http.StatusBadRequest)
+		return
+	}
+
+	cacheKey := "versions:" + bucket
+	if cached, ok := app.store.GetCache(cacheKey); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Write(cached)
+		return
+	}
+
+	entries, err := app.propfind1("/rs/" + bucket + "/")
+	if err != nil {
+		http.Error(w, "bucket not found", http.StatusNotFound)
+		return
+	}
+
+	// Sort version directories newest-first by last-modified.
+	sort.Slice(entries, func(i, j int) bool {
+		ti, _ := time.Parse(time.RFC1123, entries[i].modified)
+		tj, _ := time.Parse(time.RFC1123, entries[j].modified)
+		return ti.After(tj)
+	})
+
+	versions := make([]VersionInfo, 0)
+	for _, e := range entries {
+		if !e.isDir {
+			continue
+		}
+		vi := VersionInfo{Version: e.name}
+		if rm := app.fetchReleaseMeta(bucket, e.name); rm != nil {
+			vi.Date = rm.Date
+			vi.Notes = rm.Notes
+		}
+		versions = append(versions, vi)
+	}
+
+	data, _ := json.Marshal(versions)
+	app.store.PutCache(cacheKey, data, listCacheTTL)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Write(data)
+}
+
+// GET /api/v1/pub/release/{bucket}/versions/{version}/targets
+// No auth required. Returns the sorted list of os/arch target strings available for
+// the given version. Use the pseudo-version "latest" to resolve the most recent version.
+//
+// Each target string is a directory name under /rs/{bucket}/{version}/, conventionally
+// formatted as "{os}-{arch}", e.g. "linux-amd64", "darwin-arm64", "windows-amd64".
+func (app *App) handlePublicReleaseTargetList(w http.ResponseWriter, r *http.Request) {
+	bucket := r.PathValue("bucket")
+	version := r.PathValue("version")
+
+	if strings.ContainsAny(bucket, "/\\") || strings.ContainsAny(version, "/\\") {
+		http.Error(w, "invalid bucket or version", http.StatusBadRequest)
+		return
+	}
+
+	if version == "latest" {
+		v, err := app.resolveLatestVersion(bucket)
+		if err != nil {
+			http.Error(w, "bucket not found or has no versions", http.StatusNotFound)
+			return
+		}
+		version = v
+	}
+
+	oaDirs, err := app.propfindDirs("/rs/" + bucket + "/" + version + "/")
+	if err != nil {
+		http.Error(w, "version not found", http.StatusNotFound)
+		return
+	}
+
+	sort.Strings(oaDirs)
+	if oaDirs == nil {
+		oaDirs = []string{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+	json.NewEncoder(w).Encode(oaDirs)
 }
 
 // webdavMKCOL sends a MKCOL request to create a collection (directory) on the upstream.

@@ -83,6 +83,11 @@ func (app *App) registerRoutes(mux *http.ServeMux) {
 	// Public release info — no auth.
 	mux.HandleFunc("GET /api/v1/pub/release/{bucket}", app.handlePublicReleaseInfo)
 
+	// Auto-update endpoints — no auth.
+	mux.HandleFunc("GET /api/v1/pub/release/{bucket}/latest", app.handlePublicReleaseLatest)
+	mux.HandleFunc("GET /api/v1/pub/release/{bucket}/versions", app.handlePublicReleaseVersions)
+	mux.HandleFunc("GET /api/v1/pub/release/{bucket}/versions/{version}/targets", app.handlePublicReleaseTargetList)
+
 	// Public product catalog — no auth.
 	mux.HandleFunc("GET /api/v1/pub/products", app.handleListProducts)
 	mux.HandleFunc("GET /api/v1/pub/products/{bucket}", app.handleGetProduct)

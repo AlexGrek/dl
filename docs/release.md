@@ -150,6 +150,125 @@ GET /api/v1/pub/release/{bucket}
 
 ---
 
+## Auto-update API
+
+These endpoints are designed for in-app update checks. No authentication required on any of them.
+
+### Get latest version
+
+```
+GET /api/v1/pub/release/{bucket}/latest
+```
+
+Returns the latest version string, optional release notes, and the list of available OS/arch targets.
+The response is intentionally minimal — compare `version` to the running binary's own version string
+to decide whether an update is available.
+
+**Response `200 OK`:**
+```json
+{
+  "bucket": "myapp",
+  "version": "v1.5.0",
+  "date": "2026-03-24",
+  "notes": "Fixed crash on startup; improved memory usage.",
+  "targets": ["darwin-arm64", "darwin-amd64", "linux-amd64", "windows-amd64"]
+}
+```
+
+Fields `date` and `notes` are omitted when no `release.yaml` exists for the version.
+`targets` is always present (empty array if none).
+
+**Errors:** `400` invalid bucket · `404` bucket not found or empty · `502` upstream error
+
+---
+
+### List all versions
+
+```
+GET /api/v1/pub/release/{bucket}/versions
+```
+
+Returns every available version for the bucket, sorted newest-first by the last-modified
+timestamp of each version directory on the upstream.
+
+**Response `200 OK`:**
+```json
+[
+  { "version": "v1.5.0", "date": "2026-03-24", "notes": "Fixed crash on startup." },
+  { "version": "v1.4.0", "date": "2026-03-10", "notes": "Initial public release." }
+]
+```
+
+`date` and `notes` are omitted for versions that have no `release.yaml`.
+
+This endpoint is cached for 2 minutes.
+
+**Errors:** `400` invalid bucket · `404` bucket not found · `502` upstream error
+
+---
+
+### List targets for a version
+
+```
+GET /api/v1/pub/release/{bucket}/versions/{version}/targets
+```
+
+Returns the sorted list of OS/arch target strings available for the given version.
+Pass `latest` as `{version}` to resolve the most recently created version automatically.
+
+**Response `200 OK`:**
+```json
+["darwin-amd64", "darwin-arm64", "linux-amd64", "windows-amd64"]
+```
+
+The target strings are directory names under `/rs/{bucket}/{version}/`, conventionally
+formatted as `{os}-{arch}`. The actual binary is downloaded at:
+```
+GET /rs/{bucket}/{version}/{target}/{filename}
+```
+
+**Errors:** `400` invalid bucket or version · `404` version not found · `502` upstream error
+
+---
+
+### Auto-update flow example
+
+```bash
+CURRENT_VERSION="v1.4.0"
+BUCKET="myapp"
+BASE="https://dl.alexgr.space"
+
+# 1. Check for an update.
+LATEST=$(curl -sS "${BASE}/api/v1/pub/release/${BUCKET}/latest")
+LATEST_VERSION=$(echo "$LATEST" | jq -r .version)
+
+if [[ "$LATEST_VERSION" == "$CURRENT_VERSION" ]]; then
+  echo "Already up to date."
+  exit 0
+fi
+
+echo "Update available: $LATEST_VERSION"
+echo "$(echo "$LATEST" | jq -r '.notes // ""')"
+
+# 2. Confirm the target for this machine is available.
+TARGET="linux-amd64"
+TARGETS=$(curl -sS "${BASE}/api/v1/pub/release/${BUCKET}/versions/${LATEST_VERSION}/targets")
+if ! echo "$TARGETS" | jq -e --arg t "$TARGET" 'index($t) != null' > /dev/null; then
+  echo "No build available for $TARGET" >&2
+  exit 1
+fi
+
+# 3. Download the new binary.
+curl -L -o myapp.new \
+  "${BASE}/rs/${BUCKET}/${LATEST_VERSION}/${TARGET}/myapp"
+chmod +x myapp.new
+mv myapp.new /usr/local/bin/myapp
+
+echo "Updated to $LATEST_VERSION."
+```
+
+---
+
 ### Public download
 
 No auth required.
