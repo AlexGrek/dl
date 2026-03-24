@@ -65,13 +65,43 @@ func (app *App) handleReleaseMultipartUpload(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := r.ParseMultipartForm(256 << 20); err != nil {
+	mr, err := r.MultipartReader()
+	if err != nil {
 		http.Error(w, "invalid multipart: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	version := strings.TrimSpace(r.FormValue("version"))
-	osArch := strings.TrimSpace(r.FormValue("os_arch"))
+	// Read parts in order: collect text fields until we hit the file part.
+	var version, osArch, filename string
+	var fileReader io.Reader
+
+	for {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			http.Error(w, "multipart read error: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		switch part.FormName() {
+		case "version":
+			b, _ := io.ReadAll(io.LimitReader(part, 256))
+			version = strings.TrimSpace(string(b))
+		case "os_arch":
+			b, _ := io.ReadAll(io.LimitReader(part, 256))
+			osArch = strings.TrimSpace(string(b))
+		case "file":
+			filename = part.FileName()
+			fileReader = part
+		}
+
+		if fileReader != nil {
+			break // stream the file part below; leave remaining parts unread
+		}
+	}
+
 	if version == "" || osArch == "" {
 		http.Error(w, "version and os_arch are required", http.StatusBadRequest)
 		return
@@ -80,15 +110,11 @@ func (app *App) handleReleaseMultipartUpload(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "invalid version or os_arch", http.StatusBadRequest)
 		return
 	}
-
-	f, header, err := r.FormFile("file")
-	if err != nil {
+	if fileReader == nil {
 		http.Error(w, "file field required", http.StatusBadRequest)
 		return
 	}
-	defer f.Close()
-
-	if !safeSegment(header.Filename) {
+	if !safeSegment(filename) {
 		http.Error(w, "invalid filename", http.StatusBadRequest)
 		return
 	}
@@ -102,21 +128,18 @@ func (app *App) handleReleaseMultipartUpload(w http.ResponseWriter, r *http.Requ
 		_ = app.webdavMKCOL(p)
 	}
 
-	dest, _ := url.JoinPath(app.cfg.WebDAVURL, "rs", bucket, version, osArch, header.Filename)
-	req, err := http.NewRequest(http.MethodPut, dest, f)
+	dest, _ := url.JoinPath(app.cfg.WebDAVURL, "rs", bucket, version, osArch, filename)
+	req, err := http.NewRequest(http.MethodPut, dest, fileReader)
 	if err != nil {
 		http.Error(w, "request error", http.StatusInternalServerError)
 		return
 	}
 	req.SetBasicAuth(app.cfg.WebDAVUsername, app.cfg.WebDAVPassword)
-	req.ContentLength = header.Size
-	if ct := header.Header.Get("Content-Type"); ct != "" && ct != "application/octet-stream" {
-		req.Header.Set("Content-Type", ct)
-	}
+	req.ContentLength = -1 // unknown: streaming, no buffering
 
 	resp, err := app.client.Do(req)
 	if err != nil {
-		http.Error(w, "upstream error", http.StatusBadGateway)
+		http.Error(w, "upstream error: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
@@ -135,7 +158,7 @@ func (app *App) handleReleaseMultipartUpload(w http.ResponseWriter, r *http.Requ
 		"bucket":  bucket,
 		"version": version,
 		"os_arch": osArch,
-		"file":    header.Filename,
+		"file":    filename,
 	})
 }
 
