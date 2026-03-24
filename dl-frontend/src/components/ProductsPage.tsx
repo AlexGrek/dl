@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
-import { Download, ChevronLeft, ExternalLink, Package, Tag, Terminal } from 'lucide-preact';
+import { Download, ChevronLeft, ExternalLink, Package, Tag, Terminal, Copy, Link } from 'lucide-preact';
 import {
   type ProductSummary,
   type ProductDetail,
@@ -273,6 +273,11 @@ function ProductDetailView({ bucket, onBack }: { bucket: string; onBack: () => v
               <span class="pd__file-size">{formatSize(detectedFile.size)}</span>
             )}
           </a>
+          <div class="landing__permalink">
+            <span class="landing__permalink-label"><Link size={11} /> permalink</span>
+            <CopyField value={absDlUrl(bucket, 'latest', detected, detectedFile.name)} id="copy-permalink" />
+          </div>
+          <DownloadCommands bucket={bucket} version="latest" target={detected} file={detectedFile.name} />
         </div>
       )}
 
@@ -353,17 +358,22 @@ function VersionBlock({
                 <td class="vblock__target">{platformLabel(target)}</td>
                 <td class="vblock__files">
                   {files.map((f) => (
-                    <a
-                      key={f.name}
-                      class="btn btn--muted btn--sm"
-                      href={dlUrl(bucket, v.version, target, f.name)}
-                      download={f.name}
-                    >
-                      <Download size={11} /> {f.name}
-                      {f.size > 0 && (
-                        <span class="pd__file-size">{formatSize(f.size)}</span>
-                      )}
-                    </a>
+                    <span key={f.name} class="vblock__file-row">
+                      <a
+                        class="btn btn--muted btn--sm"
+                        href={dlUrl(bucket, v.version, target, f.name)}
+                        download={f.name}
+                      >
+                        <Download size={11} /> {f.name}
+                        {f.size > 0 && (
+                          <span class="pd__file-size">{formatSize(f.size)}</span>
+                        )}
+                      </a>
+                      <CopyUrlBtn
+                        url={absDlUrl(bucket, isLatest ? 'latest' : v.version, target, f.name)}
+                        target={target}
+                      />
+                    </span>
                   ))}
                 </td>
               </tr>
@@ -377,4 +387,72 @@ function VersionBlock({
 
 function dlUrl(bucket: string, version: string, target: string, file: string): string {
   return `/rs/${encodeURIComponent(bucket)}/${encodeURIComponent(version)}/${encodeURIComponent(target)}/${encodeURIComponent(file)}`;
+}
+
+function absDlUrl(bucket: string, version: string, target: string, file: string): string {
+  return `${window.location.origin}${dlUrl(bucket, version, target, file)}`;
+}
+
+function CopyField({ value, id }: { value: string; id?: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+  return (
+    <div class="copy-field">
+      <code class="copy-field__text" id={id}>{value}</code>
+      <button
+        class={`btn btn--sm copy-field__btn${copied ? ' btn--copied' : ''}`}
+        onClick={copy}
+        title="Copy"
+        data-action="copy"
+      >
+        {copied ? <span class="btn__copied-label">copied</span> : <Copy size={12} />}
+      </button>
+    </div>
+  );
+}
+
+function CopyUrlBtn({ url, target }: { url: string; target: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+  return (
+    <button
+      class={`btn btn--muted btn--sm${copied ? ' btn--copied' : ''}`}
+      onClick={copy}
+      title="Copy download URL"
+      data-action="copy-url"
+      data-target={target}
+    >
+      {copied ? <span class="btn__copied-label">copied</span> : <Link size={12} />}
+    </button>
+  );
+}
+
+function DownloadCommands({ bucket, version, target, file }: { bucket: string; version: string; target: string; file: string }) {
+  const url = absDlUrl(bucket, version, target, file);
+  if (target.startsWith('windows')) {
+    return (
+      <div class="landing__commands" data-target={target}>
+        <p class="landing__commands-title">download via terminal</p>
+        <CopyField value={`curl.exe -LO "${url}"`} id={`cmd-curl-${target}`} />
+        <CopyField value={`Invoke-WebRequest -Uri "${url}" -OutFile "${file}"`} id={`cmd-ps-${target}`} />
+      </div>
+    );
+  }
+  return (
+    <div class="landing__commands" data-target={target}>
+      <p class="landing__commands-title">download via terminal</p>
+      <CopyField value={`curl -LO "${url}"`} id={`cmd-curl-${target}`} />
+      <CopyField value={`wget "${url}"`} id={`cmd-wget-${target}`} />
+    </div>
+  );
 }

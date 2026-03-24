@@ -1447,6 +1447,12 @@ html, body {
   text-decoration: none;
 }
 
+.vblock__file-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
 /* ── Products responsive ── */
 @media (max-width: 480px) {
   .products__grid {
