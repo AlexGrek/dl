@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"path"
 	"strings"
 )
 
@@ -76,15 +77,25 @@ func pathUnderScope(scope, upstreamPath string) bool {
 		return false
 	}
 	root := scope[colon+1:]
-	root = "/" + strings.TrimPrefix(root, "/")
+	root = path.Clean("/" + strings.TrimPrefix(root, "/"))
 	if !strings.HasSuffix(root, "/") {
 		root += "/"
 	}
-	p := "/" + strings.TrimPrefix(upstreamPath, "/")
+	p := path.Clean("/" + strings.TrimPrefix(upstreamPath, "/"))
 	if !strings.HasSuffix(p, "/") {
 		p += "/"
 	}
 	return strings.HasPrefix(p, root)
+}
+
+// safeSegment returns false if s contains characters that could enable path
+// traversal: null bytes, ".." sequences, slashes, or backslashes.
+// Use this for individual path components (bucket, version, os_arch, filename).
+func safeSegment(s string) bool {
+	return s != "" &&
+		!strings.Contains(s, "\x00") &&
+		!strings.Contains(s, "..") &&
+		!strings.ContainsAny(s, "/\\")
 }
 
 func extractBearerToken(r *http.Request) string {

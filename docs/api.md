@@ -40,9 +40,8 @@ Content-Type: application/json
 **Body:**
 ```json
 {
-  "description": "CI upload key for offloadmq-agent",
-  "scopes": ["release-write:offloadmq-agent"],
-  "root_dir": ""
+  "description": "CI upload key for myapp",
+  "scopes": ["release-create", "release-write:myapp"]
 }
 ```
 
@@ -50,10 +49,15 @@ Content-Type: application/json
 
 | Scope | Effect |
 |---|---|
-| `read` | Read via WebDAV proxy (restricted to `root_dir` if set) |
-| `write` | Write via WebDAV proxy (restricted to `root_dir` if set) |
+| `read` | Read-only WebDAV proxy access (all paths) |
+| `read:/path` | Read-only WebDAV proxy access restricted to `/path` and below |
+| `write` | Read+write WebDAV proxy access (all paths) |
+| `write:/path` | Read+write WebDAV proxy access restricted to `/path` and below |
 | `release-create` | Create new release buckets |
-| `release-write:{bucket}` | Upload files to a specific release bucket |
+| `release-write` | Upload to any release bucket |
+| `release-write:{bucket}` | Upload to a specific release bucket |
+
+Multiple scopes can be combined, e.g. `["read:/docs", "release-write:myapp"]`.
 
 **Response `200 OK`:**
 ```json
@@ -84,8 +88,7 @@ Authorization: Bearer <master_key>
   {
     "id": "dlk_abc123",
     "description": "CI upload key",
-    "scopes": ["release-write:offloadmq-agent"],
-    "root_dir": "",
+    "scopes": ["release-write:myapp"],
     "created_at": "2026-03-23T20:00:00Z"
   }
 ]
@@ -127,7 +130,7 @@ Full WebDAV proxy to the upstream storage server (Hetzner Storage Box). All stan
 | `GET`, `HEAD`, `PROPFIND`, `OPTIONS` | `read` or `write` |
 | All other methods | `write` |
 
-If the JWT's `root_dir` is set, all paths must be prefixed by it. Requests outside the root return `403`.
+Path-scoped tokens (`read:/path`, `write:/path`) restrict access to the given prefix and its descendants. Requests outside the allowed paths return `403`.
 
 **Example — list directory:**
 ```
@@ -153,70 +156,21 @@ Content-Type: application/octet-stream
 
 ## Release Buckets
 
-### Create release bucket
+Files are stored at `/rs/{bucket}/{version}/{os_arch}/{filename}`. The pseudo-version `latest` redirects to the most recently created version.
 
-```
-POST /api/v1/release/create
-Authorization: Bearer <jwt with release-create scope>
-Content-Type: application/json
-```
+See **[docs/release.md](release.md)** for the full release API reference, endpoint details, and an example release script.
 
-**Body:**
-```json
-{
-  "bucket": "offloadmq-agent"
-}
-```
+**Quick reference:**
 
-Creates the directory `/rs/offloadmq-agent/` on the upstream WebDAV server. Bucket names must not contain `/`, `\`, or `..`.
-
-**Response `201 Created`:**
-```json
-{
-  "bucket": "offloadmq-agent"
-}
-```
-
-**Errors:**
-- `400` — missing or invalid bucket name
-- `403` — missing `release-create` scope
-- `502` — upstream WebDAV error
-
----
-
-### Upload release file
-
-```
-PUT /api/v1/release/{bucket}/{os_arch}/{file...}
-Authorization: Bearer <jwt with release-write:{bucket} or write scope>
-Content-Type: application/octet-stream
-```
-
-Streams the request body to the upstream WebDAV server at `/rs/{bucket}/{os_arch}/{file...}`. Intermediate directories are created automatically.
-
-**Example:**
-```
-PUT /api/v1/release/offloadmq-agent/darwin-arm64/agent.dmg
-Authorization: Bearer eyJ...
-Content-Type: application/octet-stream
-Content-Length: 42000000
-
-<binary content>
-```
-
-Stored at upstream: `/rs/offloadmq-agent/darwin-arm64/agent.dmg`
-
-Then publicly downloadable as:
-- `GET /rs/offloadmq-agent/darwin-arm64/agent.dmg`
-- `GET /d/rs/offloadmq-agent/darwin-arm64/agent.dmg`
-
-**Response `201 Created`**
-
-**Errors:**
-- `400` — missing path components
-- `401` — missing JWT
-- `403` — missing `release-write:{bucket}` or `write` scope
-- `502` — upstream WebDAV error
+| Endpoint | Auth | Description |
+|---|---|---|
+| `POST /api/v1/release/create` | JWT `release-create` | Create a bucket |
+| `POST /api/v1/release/{bucket}/upload` | JWT `release-write:{bucket}` | Multipart upload |
+| `PUT /api/v1/release/{bucket}/{version}/{os_arch}/{file...}` | JWT `release-write:{bucket}` | Streaming upload |
+| `GET /api/v1/pub/release/{bucket}` | none | Latest version + target list |
+| `GET /rs/{bucket}/{version}/{os_arch}/{file}` | none | Download file |
+| `GET /rs/{bucket}/latest/{os_arch}/{file}` | none | Download latest (302 redirect) |
+| `GET /r/{bucket}` | none | Release landing page |
 
 ---
 
@@ -234,7 +188,7 @@ Streams any file from the WebDAV upstream at `/{path}`. Intended for short, shar
 
 **Example:**
 ```
-GET /d/rs/offloadmq-agent/darwin-arm64/agent.dmg
+GET /d/backups/archive.tar.gz
 ```
 
 Supports `Range` requests for resumable downloads.
@@ -254,12 +208,13 @@ GET /rs/{path...}
 
 Streams a file from the WebDAV upstream at `/rs/{path}`. Equivalent to `/d/rs/{path}` but with a cleaner URL.
 
-**Example:**
+**Examples:**
 ```
-GET /rs/offloadmq-agent/darwin-arm64/agent.dmg
+GET /rs/myapp/v1.4.0/darwin-arm64/myapp
+GET /rs/myapp/latest/linux-amd64/myapp
 ```
 
-Supports `Range` requests for resumable downloads.
+`latest` issues a `302` redirect to the actual version URL. Supports `Range` requests for resumable downloads.
 
 **Errors:**
 - `400` — path contains `..`
@@ -272,39 +227,39 @@ Supports `Range` requests for resumable downloads.
 
 ### Ship a release from CI
 
+See [docs/release.md](release.md) for a full release script. Quick example:
+
 ```bash
-# 1. Get a JWT for the CI key
-TOKEN=$(curl -s -X POST https://dl.alexgr.space/api/v1/auth/token \
-  -H "Authorization: Bearer $CI_API_KEY" | jq -r .token)
+TOKEN=$(curl -sS -X POST https://dl.alexgr.space/api/v1/auth/token \
+  -H "Authorization: Bearer $DL_API_KEY" | jq -r .token)
 
-# 2. Upload the artifact
-curl -X PUT https://dl.alexgr.space/api/v1/release/offloadmq-agent/darwin-arm64/agent.dmg \
+curl -sS --fail \
+  -X POST https://dl.alexgr.space/api/v1/release/myapp/upload \
   -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/octet-stream" \
-  --data-binary @agent.dmg
+  -F "version=v1.4.0" \
+  -F "os_arch=linux-amd64" \
+  -F "file=@dist/myapp"
 
-# 3. Share the public link — no token needed
-https://dl.alexgr.space/rs/offloadmq-agent/darwin-arm64/agent.dmg
+# Public link — no token needed
+# https://dl.alexgr.space/rs/myapp/v1.4.0/linux-amd64/myapp
+# https://dl.alexgr.space/r/myapp   ← landing page
 ```
 
 ### Create a new API key (admin)
 
 ```bash
-# Use the master key to create a scoped key
-curl -s -X POST https://dl.alexgr.space/api/v1/auth/keys \
+curl -sS -X POST https://dl.alexgr.space/api/v1/auth/keys \
   -H "Authorization: Bearer $MASTER_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"description":"CI – offloadmq","scopes":["release-write:offloadmq-agent"]}'
+  -d '{"description":"CI – myapp","scopes":["release-create","release-write:myapp"]}'
 ```
 
 ### Browse files via WebDAV
 
 ```bash
-# Get a JWT first
-TOKEN=$(curl -s -X POST https://dl.alexgr.space/api/v1/auth/token \
+TOKEN=$(curl -sS -X POST https://dl.alexgr.space/api/v1/auth/token \
   -H "Authorization: Bearer $API_KEY" | jq -r .token)
 
-# Mount with any WebDAV client, or use cadaver/curl
 curl -X PROPFIND https://dl.alexgr.space/api/v1/wd/ \
   -H "Authorization: Bearer $TOKEN" \
   -H "Depth: 1"

@@ -200,6 +200,48 @@ export function detectPlatform(): string {
   return '';
 }
 
+// ── Product catalog (public) ──
+
+export interface ProductSummary {
+  bucket: string;
+  name: string;
+  tagline: string;
+  latest: string;
+  targets: string[];
+  tags: string[];
+  license: string;
+}
+
+export interface VersionDetail {
+  version: string;
+  date: string;
+  notes: string;
+  targets: Record<string, ReleaseFile[]>;
+}
+
+export interface ProductDetail {
+  bucket: string;
+  name: string;
+  tagline: string;
+  description: string;
+  homepage: string;
+  license: string;
+  tags: string[];
+  versions: VersionDetail[];
+}
+
+export async function listProducts(): Promise<ProductSummary[]> {
+  const res = await fetch('/api/v1/pub/products');
+  if (!res.ok) throw new Error(`Failed to list products: ${res.status}`);
+  return (await res.json()) as ProductSummary[];
+}
+
+export async function getProductDetail(bucket: string): Promise<ProductDetail> {
+  const res = await fetch(`/api/v1/pub/products/${encodeURIComponent(bucket)}`);
+  if (!res.ok) throw new Error(`Failed to load product: ${res.status}`);
+  return (await res.json()) as ProductDetail;
+}
+
 // ── Release management ──
 
 export async function createReleaseBucket(jwt: string, bucket: string): Promise<void> {

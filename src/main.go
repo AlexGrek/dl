@@ -80,6 +80,10 @@ func (app *App) registerRoutes(mux *http.ServeMux) {
 	// Public release info — no auth.
 	mux.HandleFunc("GET /api/v1/pub/release/{bucket}", app.handlePublicReleaseInfo)
 
+	// Public product catalog — no auth.
+	mux.HandleFunc("GET /api/v1/pub/products", app.handleListProducts)
+	mux.HandleFunc("GET /api/v1/pub/products/{bucket}", app.handleGetProduct)
+
 	// Public downloads — no auth.
 	mux.HandleFunc("GET /d/{path...}", app.handleDownload)
 	mux.HandleFunc("GET /rs/{path...}", app.handlePublicRelease)

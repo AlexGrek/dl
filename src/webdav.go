@@ -43,6 +43,10 @@ func (app *App) handleWebDAV(w http.ResponseWriter, r *http.Request) {
 	if bare == "" {
 		bare = "/"
 	}
+	if strings.Contains(bare, "\x00") || strings.Contains(bare, "..") {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
 
 	switch r.Method {
 	case http.MethodGet, http.MethodHead, "PROPFIND", "OPTIONS":

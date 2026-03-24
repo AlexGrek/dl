@@ -10,7 +10,11 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-const bucketAPIKeys = "apikeys"
+const (
+	bucketAPIKeys = "apikeys"
+	bucketCache   = "cache"
+	maxCacheTTL   = 6 * time.Hour
+)
 
 type APIKey struct {
 	ID          string    `json:"id"`
@@ -29,7 +33,10 @@ func openStore(path string) (*Store, error) {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
 	if err := db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte(bucketAPIKeys))
+		if _, err := tx.CreateBucketIfNotExists([]byte(bucketAPIKeys)); err != nil {
+			return err
+		}
+		_, err := tx.CreateBucketIfNotExists([]byte(bucketCache))
 		return err
 	}); err != nil {
 		db.Close()
@@ -98,4 +105,66 @@ func (s *Store) ListAPIKeys() ([]APIKey, error) {
 		})
 	})
 	return keys, err
+}
+
+// ── Cache (TTL-based key/value, used for product metadata) ──
+
+type cacheEntry struct {
+	Data      json.RawMessage `json:"d"`
+	ExpiresAt time.Time       `json:"e"`
+}
+
+// GetCache returns the cached value for key, or nil if missing/expired.
+func (s *Store) GetCache(key string) ([]byte, bool) {
+	var result []byte
+	s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucketCache))
+		if b == nil {
+			return nil
+		}
+		raw := b.Get([]byte(key))
+		if raw == nil {
+			return nil
+		}
+		var entry cacheEntry
+		if err := json.Unmarshal(raw, &entry); err != nil {
+			return nil
+		}
+		if time.Now().After(entry.ExpiresAt) {
+			return nil
+		}
+		result = entry.Data
+		return nil
+	})
+	return result, result != nil
+}
+
+// ClearCache deletes all cached entries.
+func (s *Store) ClearCache() error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		if err := tx.DeleteBucket([]byte(bucketCache)); err != nil && err != bolt.ErrBucketNotFound {
+			return err
+		}
+		_, err := tx.CreateBucket([]byte(bucketCache))
+		return err
+	})
+}
+
+// PutCache stores data under key with the given TTL (capped at maxCacheTTL).
+func (s *Store) PutCache(key string, data []byte, ttl time.Duration) error {
+	if ttl > maxCacheTTL {
+		ttl = maxCacheTTL
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucketCache))
+		entry := cacheEntry{
+			Data:      data,
+			ExpiresAt: time.Now().Add(ttl),
+		}
+		raw, err := json.Marshal(entry)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(key), raw)
+	})
 }

@@ -75,8 +75,7 @@ func (app *App) handleReleaseMultipartUpload(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "version and os_arch are required", http.StatusBadRequest)
 		return
 	}
-	if strings.Contains(version, "..") || strings.ContainsAny(version, "/\\") ||
-		strings.Contains(osArch, "..") || strings.ContainsAny(osArch, "/\\") {
+	if !safeSegment(version) || !safeSegment(osArch) {
 		http.Error(w, "invalid version or os_arch", http.StatusBadRequest)
 		return
 	}
@@ -87,6 +86,11 @@ func (app *App) handleReleaseMultipartUpload(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	defer f.Close()
+
+	if !safeSegment(header.Filename) {
+		http.Error(w, "invalid filename", http.StatusBadRequest)
+		return
+	}
 
 	for _, p := range []string{
 		"/rs",
@@ -122,6 +126,8 @@ func (app *App) handleReleaseMultipartUpload(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	_ = app.store.ClearCache()
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
@@ -150,6 +156,15 @@ func (app *App) handleReleaseUpload(w http.ResponseWriter, r *http.Request) {
 
 	if bucket == "" || version == "" || osArch == "" || file == "" {
 		http.Error(w, "bucket, version, os_arch, and file required", http.StatusBadRequest)
+		return
+	}
+	if !safeSegment(bucket) || !safeSegment(version) || !safeSegment(osArch) {
+		http.Error(w, "invalid bucket, version, or os_arch", http.StatusBadRequest)
+		return
+	}
+	// file is a multi-segment wildcard; check for null bytes and .. components.
+	if strings.Contains(file, "\x00") || strings.Contains(file, "..") {
+		http.Error(w, "invalid file path", http.StatusBadRequest)
 		return
 	}
 
@@ -197,6 +212,8 @@ func (app *App) handleReleaseUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("upstream: %s", strings.TrimSpace(string(body))), resp.StatusCode)
 		return
 	}
+
+	_ = app.store.ClearCache()
 
 	w.WriteHeader(http.StatusCreated)
 }
@@ -290,9 +307,10 @@ func (app *App) propfindFiles(upstreamPath string) ([]ReleaseFile, error) {
 }
 
 type propfindEntry struct {
-	name  string
-	isDir bool
-	size  int64
+	name     string
+	isDir    bool
+	size     int64
+	modified string // RFC1123 timestamp from getlastmodified
 }
 
 // propfind1 does a Depth:1 PROPFIND and returns parsed child entries (excluding the root itself).
@@ -359,9 +377,10 @@ func (app *App) propfind1(upstreamPath string) ([]propfindEntry, error) {
 			continue // skip root and deep entries
 		}
 		entries = append(entries, propfindEntry{
-			name:  name,
-			isDir: r.Prop.IsCollection != nil,
-			size:  r.Prop.Size,
+			name:     name,
+			isDir:    r.Prop.IsCollection != nil,
+			size:     r.Prop.Size,
+			modified: r.Prop.LastModified,
 		})
 	}
 	return entries, nil
