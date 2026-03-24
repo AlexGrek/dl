@@ -15,6 +15,7 @@ description: Go backend context for the dl project. Apply when working on Go sou
 | Protocol | `net/http` stdlib + WebDAV reverse proxy |
 | Build | `make build` (frontend + backend) or `go build -o dl ./src/` |
 | Test | `go test ./src/...` |
+| Dev | `make dev` — backend on **:8081**, Vite on :5173 |
 
 ---
 

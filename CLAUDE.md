@@ -20,9 +20,15 @@ npm run preview  # Preview production build
 make build       # build frontend + backend (outputs ./dl binary)
 make backend     # build Go only: go build -o dl ./src/
 make frontend    # build Preact + copy to src/static/
+make dev         # build + run backend (:8081) + Vite dev server concurrently
 make test        # go test ./src/...
 make run         # build backend and run with .secrets.yaml
 go run ./src/    # run directly (requires src/static/ to exist)
+```
+
+> **Dev port:** `make dev` passes `-port 8081` to the binary. Use `http://localhost:8081` when testing the backend directly in dev mode.
+
+```bash
 ```
 
 ## Architecture

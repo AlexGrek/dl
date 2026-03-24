@@ -81,7 +81,8 @@ func (app *App) handleListProducts(w http.ResponseWriter, r *http.Request) {
 
 	buckets, err := app.propfindDirs("/rs/")
 	if err != nil {
-		json.NewEncoder(w).Encode([]any{})
+		log.Printf("handleListProducts: propfind /rs/: %v", err)
+		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
 
