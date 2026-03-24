@@ -21,6 +21,9 @@ interface Props {
   onLoginRequired: () => void;
 }
 
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 0] as const; // 0 = All
+const PAGE_SIZE_LABELS: Record<number, string> = { 25: '25', 50: '50', 100: '100', 0: 'all' };
+
 export function FileBrowser({ jwt, path, onNavigate, onLoginRequired }: Props) {
   const [entries, setEntries] = useState<DavEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -33,12 +36,15 @@ export function FileBrowser({ jwt, path, onNavigate, onLoginRequired }: Props) {
   const [deleteTarget, setDeleteTarget] = useState<DavEntry | null>(null);
   const [copied, setCopied] = useState(false);
   const [copiedHref, setCopiedHref] = useState<string | null>(null);
+  const [pageSize, setPageSize] = useState<number>(50);
+  const [page, setPage] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    setPage(0);
     if (jwt) void loadDir(path);
   }, [jwt, path]);
 
@@ -154,6 +160,8 @@ export function FileBrowser({ jwt, path, onNavigate, onLoginRequired }: Props) {
   }
 
   const segments = pathSegments(path);
+  const totalPages = pageSize === 0 ? 1 : Math.ceil(entries.length / pageSize);
+  const visibleEntries = pageSize === 0 ? entries : entries.slice(page * pageSize, (page + 1) * pageSize);
 
   return (
     <div
@@ -197,6 +205,17 @@ export function FileBrowser({ jwt, path, onNavigate, onLoginRequired }: Props) {
         </nav>
 
         <div class="browser__toolbar-right">
+          <select
+            class="input input--sm"
+            id="select-page-size"
+            value={pageSize}
+            onChange={(e) => { setPageSize(Number((e.target as HTMLSelectElement).value)); setPage(0); }}
+            title="Items per page"
+          >
+            {PAGE_SIZE_OPTIONS.map((n) => (
+              <option key={n} value={n}>{PAGE_SIZE_LABELS[n]}</option>
+            ))}
+          </select>
           <button
             class={`btn btn--muted btn--sm${copied ? ' btn--copied' : ''}`}
             id="btn-share"
@@ -285,7 +304,7 @@ export function FileBrowser({ jwt, path, onNavigate, onLoginRequired }: Props) {
             </tr>
           </thead>
           <tbody>
-            {entries.map((entry) => (
+            {visibleEntries.map((entry) => (
               <tr key={entry.href} data-href={entry.href}>
                 <td>
                   <div class="file-table__name">
@@ -352,6 +371,28 @@ export function FileBrowser({ jwt, path, onNavigate, onLoginRequired }: Props) {
             ))}
           </tbody>
         </table>
+      )}
+
+      {totalPages > 1 && (
+        <div class="pager">
+          <button
+            class="btn btn--muted btn--sm"
+            id="btn-prev-page"
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page === 0}
+          >
+            ←
+          </button>
+          <span class="pager__info">{page + 1} / {totalPages}</span>
+          <button
+            class="btn btn--muted btn--sm"
+            id="btn-next-page"
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            disabled={page >= totalPages - 1}
+          >
+            →
+          </button>
+        </div>
       )}
 
       {uploading && <div class="upload-progress">{uploading}</div>}

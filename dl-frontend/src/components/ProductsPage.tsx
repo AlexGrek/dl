@@ -161,15 +161,19 @@ function ProductListView({ onSelect }: { onSelect: (bucket: string) => void }) {
 
 // ── Detail View ──
 
+const OLD_VERSIONS_PAGE_SIZE = 9;
+
 function ProductDetailView({ bucket, onBack }: { bucket: string; onBack: () => void }) {
   const [detail, setDetail] = useState<ProductDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const detected = detectPlatform();
+  const [oldPage, setOldPage] = useState(0);
 
   useEffect(() => {
     setLoading(true);
     setError('');
+    setOldPage(0);
     getProductDetail(bucket)
       .then(setDetail)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
@@ -300,20 +304,46 @@ function ProductDetailView({ bucket, onBack }: { bucket: string; onBack: () => v
             isLatest={true}
             detected={detected}
           />
-          {detail.versions.length > 1 && (
-            <>
-              <span class="pd__section-title pd__section-title--sub">older versions</span>
-              {detail.versions.slice(1).map((v) => (
-                <VersionBlock
-                  key={v.version}
-                  bucket={bucket}
-                  version={v}
-                  isLatest={false}
-                  detected={detected}
-                />
-              ))}
-            </>
-          )}
+          {detail.versions.length > 1 && (() => {
+            const older = detail.versions.slice(1);
+            const totalOldPages = Math.ceil(older.length / OLD_VERSIONS_PAGE_SIZE);
+            const pageOlder = older.slice(oldPage * OLD_VERSIONS_PAGE_SIZE, (oldPage + 1) * OLD_VERSIONS_PAGE_SIZE);
+            return (
+              <>
+                <span class="pd__section-title pd__section-title--sub">older versions</span>
+                {pageOlder.map((v) => (
+                  <VersionBlock
+                    key={v.version}
+                    bucket={bucket}
+                    version={v}
+                    isLatest={false}
+                    detected={detected}
+                  />
+                ))}
+                {totalOldPages > 1 && (
+                  <div class="pager">
+                    <button
+                      class="btn btn--muted btn--sm"
+                      id="btn-older-prev"
+                      onClick={() => setOldPage((p) => Math.max(0, p - 1))}
+                      disabled={oldPage === 0}
+                    >
+                      ←
+                    </button>
+                    <span class="pager__info">{oldPage + 1} / {totalOldPages}</span>
+                    <button
+                      class="btn btn--muted btn--sm"
+                      id="btn-older-next"
+                      onClick={() => setOldPage((p) => Math.min(totalOldPages - 1, p + 1))}
+                      disabled={oldPage >= totalOldPages - 1}
+                    >
+                      →
+                    </button>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
     </div>
