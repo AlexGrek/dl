@@ -12,6 +12,7 @@ export interface APIKey {
   scopes: string[];
   root_dir?: string;
   created_at: string;
+  last_login?: string;
 }
 
 // ── Auth ──

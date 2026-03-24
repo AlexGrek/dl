@@ -87,6 +87,7 @@ func (app *App) handleAuthToken(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		app.store.TouchLastLogin(apiKey)
 	}
 
 	tok, err := issueJWT(app.cfg.JWTSecret, record)

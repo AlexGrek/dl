@@ -225,6 +225,7 @@ export function AdminPage() {
                     <th>description</th>
                     <th>scopes</th>
                     <th>created</th>
+                    <th>last login</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -254,6 +255,9 @@ export function AdminPage() {
                       </td>
                       <td class="file-table__date">
                         {key.created_at ? key.created_at.slice(0, 10) : '—'}
+                      </td>
+                      <td class="file-table__date">
+                        {key.last_login ? key.last_login.slice(0, 10) : '—'}
                       </td>
                       <td>
                         <div class="key-table__actions">

@@ -17,11 +17,12 @@ const (
 )
 
 type APIKey struct {
-	ID          string    `json:"id"`
-	Description string    `json:"description"`
-	Scopes      []string  `json:"scopes"`
-	RootDir     string    `json:"root_dir,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          string     `json:"id"`
+	Description string     `json:"description"`
+	Scopes      []string   `json:"scopes"`
+	RootDir     string     `json:"root_dir,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	LastLogin   *time.Time `json:"last_login,omitempty"`
 }
 
 type Store struct {
@@ -89,6 +90,28 @@ func (s *Store) DeleteAPIKey(key string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketAPIKeys))
 		return b.Delete([]byte(hashed))
+	})
+}
+
+func (s *Store) TouchLastLogin(key string) {
+	hashed := hashKey(key)
+	now := time.Now()
+	_ = s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucketAPIKeys))
+		data := b.Get([]byte(hashed))
+		if data == nil {
+			return nil
+		}
+		var record APIKey
+		if err := json.Unmarshal(data, &record); err != nil {
+			return err
+		}
+		record.LastLogin = &now
+		updated, err := json.Marshal(record)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(hashed), updated)
 	})
 }
 
