@@ -316,7 +316,10 @@ type propfindEntry struct {
 // propfind1 does a Depth:1 PROPFIND and returns parsed child entries (excluding the root itself).
 func (app *App) propfind1(upstreamPath string) ([]propfindEntry, error) {
 	// Encode each segment of the decoded upstreamPath for the HTTP request.
+	// Always add a trailing slash so WebDAV servers don't redirect (redirect
+	// drops PROPFIND → GET on Go's default HTTP client).
 	encoded, _ := url.JoinPath(app.cfg.WebDAVURL, strings.Split(strings.Trim(upstreamPath, "/"), "/")...)
+	encoded += "/"
 	req, err := http.NewRequest("PROPFIND", encoded, nil)
 	if err != nil {
 		return nil, err
@@ -390,6 +393,7 @@ func (app *App) propfind1(upstreamPath string) ([]propfindEntry, error) {
 // Returns nil if the collection already exists (207/405) or was created (201).
 func (app *App) webdavMKCOL(path string) error {
 	encoded, _ := url.JoinPath(app.cfg.WebDAVURL, strings.Split(strings.Trim(path, "/"), "/")...)
+	encoded += "/"
 	req, err := http.NewRequest("MKCOL", encoded, nil)
 	if err != nil {
 		return err
