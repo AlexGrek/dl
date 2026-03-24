@@ -58,8 +58,7 @@ func (app *App) handleReleaseMultipartUpload(w http.ResponseWriter, r *http.Requ
 	}
 
 	bucket := r.PathValue("bucket")
-	if !info.HasScope("write") && !info.HasScope("release-write") &&
-		info.ScopeValue("release-write") != bucket {
+	if !info.CanWriteReleaseBucket(bucket) {
 		http.Error(w, fmt.Sprintf("release-write:%s scope required", bucket), http.StatusForbidden)
 		return
 	}
@@ -168,10 +167,7 @@ func (app *App) handleReleaseUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Require release-write:{bucket}, release-write (global), or write (global).
-	allowed := info.HasScope("write") || info.HasScope("release-write") ||
-		info.ScopeValue("release-write") == bucket
-	if !allowed {
+	if !info.CanWriteReleaseBucket(bucket) {
 		http.Error(w, fmt.Sprintf("release-write:%s scope required", bucket), http.StatusForbidden)
 		return
 	}

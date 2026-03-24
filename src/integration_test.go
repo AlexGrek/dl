@@ -360,6 +360,159 @@ func TestWebDAV_WriteScope(t *testing.T) {
 	}
 }
 
+// ── Wildcard scope tests ──────────────────────────────────────────────────────
+
+func TestWebDAV_WildcardReadScope_Allowed(t *testing.T) {
+	jwt := getMasterJWT(t)
+	suffix := randSuffix()
+	dir := "/shared-" + suffix
+	file := dir + "/file.txt"
+	content := "wc-read-" + suffix
+
+	// Seed file via master.
+	mkcolReq, _ := http.NewRequest("MKCOL", testBaseURL+"/api/v1/wd"+dir, nil)
+	mkcolReq.Header.Set("Authorization", "Bearer "+jwt)
+	resp, _ := http.DefaultClient.Do(mkcolReq)
+	resp.Body.Close()
+
+	putReq, _ := http.NewRequest("PUT", testBaseURL+"/api/v1/wd"+file, strings.NewReader(content))
+	putReq.Header.Set("Authorization", "Bearer "+jwt)
+	resp, _ = http.DefaultClient.Do(putReq)
+	resp.Body.Close()
+
+	// Key with wildcard scope "read:/shared-*" — should cover /shared-<suffix>/.
+	key := createAPIKey(t, "wc-read", []string{"read:/shared-*"}, "")
+	t.Cleanup(func() { deleteAPIKeyFromStore(t, key) })
+	tok := getJWT(t, key)
+
+	getReq, _ := http.NewRequest("GET", testBaseURL+"/api/v1/wd"+file, nil)
+	getReq.Header.Set("Authorization", "Bearer "+tok)
+	getResp, err := http.DefaultClient.Do(getReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer getResp.Body.Close()
+	got, _ := io.ReadAll(getResp.Body)
+	if string(got) != content {
+		t.Errorf("expected %q, got %q", content, string(got))
+	}
+}
+
+func TestWebDAV_WildcardReadScope_Blocked(t *testing.T) {
+	// "read:/shared-*" must not grant access to /other/.
+	key := createAPIKey(t, "wc-read-block", []string{"read:/shared-*"}, "")
+	t.Cleanup(func() { deleteAPIKeyFromStore(t, key) })
+	tok := getJWT(t, key)
+
+	req, _ := http.NewRequest("GET", testBaseURL+"/api/v1/wd/other/file.txt", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestWebDAV_WildcardWriteScope(t *testing.T) {
+	key := createAPIKey(t, "wc-write", []string{"write:/proj-*"}, "")
+	t.Cleanup(func() { deleteAPIKeyFromStore(t, key) })
+	tok := getJWT(t, key)
+	suffix := randSuffix()
+	dir := "/proj-" + suffix
+	file := dir + "/data.txt"
+	content := "wc-write-" + suffix
+
+	mkcolReq, _ := http.NewRequest("MKCOL", testBaseURL+"/api/v1/wd"+dir, nil)
+	mkcolReq.Header.Set("Authorization", "Bearer "+tok)
+	mkcolResp, err := http.DefaultClient.Do(mkcolReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mkcolResp.Body.Close()
+	if mkcolResp.StatusCode != http.StatusCreated {
+		t.Fatalf("MKCOL: expected 201, got %d", mkcolResp.StatusCode)
+	}
+
+	putReq, _ := http.NewRequest("PUT", testBaseURL+"/api/v1/wd"+file, strings.NewReader(content))
+	putReq.Header.Set("Authorization", "Bearer "+tok)
+	putResp, err := http.DefaultClient.Do(putReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putResp.Body.Close()
+	if putResp.StatusCode >= 300 {
+		t.Fatalf("PUT: expected 2xx, got %d", putResp.StatusCode)
+	}
+
+	// Write outside wildcard scope must be denied.
+	putReq2, _ := http.NewRequest("PUT", testBaseURL+"/api/v1/wd/other/file.txt", strings.NewReader("x"))
+	putReq2.Header.Set("Authorization", "Bearer "+tok)
+	putResp2, err := http.DefaultClient.Do(putReq2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putResp2.Body.Close()
+	if putResp2.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 outside wildcard, got %d", putResp2.StatusCode)
+	}
+}
+
+func TestRelease_WildcardBucketScope_Allowed(t *testing.T) {
+	jwt := getMasterJWT(t)
+	suffix := randSuffix()
+	bucket := "app-" + suffix
+
+	// Create the bucket with master JWT.
+	createBody, _ := json.Marshal(map[string]string{"bucket": bucket})
+	createReq, _ := http.NewRequest("POST", testBaseURL+"/api/v1/release/create", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", "Bearer "+jwt)
+	createReq.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	// Key with wildcard release-write:app-* scope.
+	key := createAPIKey(t, "wc-release", []string{"release-write:app-*"}, "")
+	t.Cleanup(func() { deleteAPIKeyFromStore(t, key) })
+	tok := getJWT(t, key)
+
+	uploadURL := fmt.Sprintf("%s/api/v1/release/%s/v1.0.0/linux_amd64/bin", testBaseURL, bucket)
+	uploadReq, _ := http.NewRequest("PUT", uploadURL, strings.NewReader("binary"))
+	uploadReq.Header.Set("Authorization", "Bearer "+tok)
+	uploadResp, err := http.DefaultClient.Do(uploadReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uploadResp.Body.Close()
+	if uploadResp.StatusCode != http.StatusCreated {
+		t.Errorf("expected 201, got %d", uploadResp.StatusCode)
+	}
+}
+
+func TestRelease_WildcardBucketScope_Blocked(t *testing.T) {
+	key := createAPIKey(t, "wc-release-block", []string{"release-write:app-*"}, "")
+	t.Cleanup(func() { deleteAPIKeyFromStore(t, key) })
+	tok := getJWT(t, key)
+
+	// Attempt upload to a bucket NOT matching the wildcard.
+	uploadURL := fmt.Sprintf("%s/api/v1/release/other-bucket/v1.0.0/linux_amd64/bin", testBaseURL)
+	uploadReq, _ := http.NewRequest("PUT", uploadURL, strings.NewReader("binary"))
+	uploadReq.Header.Set("Authorization", "Bearer "+tok)
+	uploadResp, err := http.DefaultClient.Do(uploadReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uploadResp.Body.Close()
+	if uploadResp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", uploadResp.StatusCode)
+	}
+}
+
 func TestReleaseCreate(t *testing.T) {
 	jwt := getMasterJWT(t)
 	bucket := "itest-" + randSuffix()

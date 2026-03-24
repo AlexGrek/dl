@@ -345,7 +345,7 @@ export function AdminPage() {
                     class="input"
                     id="input-file-path"
                     type="text"
-                    placeholder="/path (empty = global)"
+                    placeholder="/path or /prefix* (empty = global)"
                     value={addFilePath}
                     style="flex:1"
                     onInput={(e) => setAddFilePath((e.target as HTMLInputElement).value)}
@@ -368,7 +368,7 @@ export function AdminPage() {
                     class="input"
                     id="input-release-bucket"
                     type="text"
-                    placeholder="bucket name"
+                    placeholder="bucket or prefix*"
                     value={addBucket}
                     style="flex:1"
                     onInput={(e) => setAddBucket((e.target as HTMLInputElement).value)}

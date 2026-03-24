@@ -71,12 +71,25 @@ func (t *TokenInfo) ScopeValue(prefix string) string {
 
 // pathUnderScope checks whether upstreamPath is at or under the root embedded in a
 // scope string of the form "read:/root" or "write:/root".
+// A trailing * in the path enables prefix matching without segment-boundary enforcement:
+//
+//	"read:/shared-*" matches /shared-foo/, /shared-bar/, etc.
+//	"read:/projects/" matches only the /projects/ subtree (exact boundary).
 func pathUnderScope(scope, upstreamPath string) bool {
 	colon := strings.Index(scope, ":")
 	if colon < 0 {
 		return false
 	}
 	root := scope[colon+1:]
+
+	if strings.HasSuffix(root, "*") {
+		// Trailing wildcard: plain string-prefix match (no path.Clean normalization so
+		// the wildcard position is preserved exactly as written).
+		prefix := "/" + strings.TrimPrefix(strings.TrimSuffix(root, "*"), "/")
+		p := "/" + strings.TrimPrefix(upstreamPath, "/")
+		return strings.HasPrefix(p, prefix)
+	}
+
 	root = path.Clean("/" + strings.TrimPrefix(root, "/"))
 	if !strings.HasSuffix(root, "/") {
 		root += "/"
@@ -86,6 +99,30 @@ func pathUnderScope(scope, upstreamPath string) bool {
 		p += "/"
 	}
 	return strings.HasPrefix(p, root)
+}
+
+// CanWriteReleaseBucket returns true if the token grants release-write access to the
+// given bucket name.  Exact match ("release-write:bucket") and trailing-wildcard
+// ("release-write:prefix*") are both supported, in addition to the global "write" and
+// "release-write" (no colon suffix) scopes.
+func (t *TokenInfo) CanWriteReleaseBucket(bucket string) bool {
+	if t.HasScope("write") || t.HasScope("release-write") {
+		return true
+	}
+	for _, s := range t.Scopes {
+		if !strings.HasPrefix(s, "release-write:") {
+			continue
+		}
+		val := strings.TrimPrefix(s, "release-write:")
+		if strings.HasSuffix(val, "*") {
+			if strings.HasPrefix(bucket, strings.TrimSuffix(val, "*")) {
+				return true
+			}
+		} else if val == bucket {
+			return true
+		}
+	}
+	return false
 }
 
 // safeSegment returns false if s contains characters that could enable path
