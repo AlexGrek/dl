@@ -20,6 +20,7 @@ type App struct {
 	store   *Store
 	wdProxy *httputil.ReverseProxy
 	client  *http.Client
+	wdSem   chan struct{} // limits concurrent WebDAV connections
 }
 
 func main() {
@@ -53,6 +54,7 @@ func main() {
 		client: &http.Client{
 			Timeout: 30 * time.Minute, // large uploads can take a while
 		},
+		wdSem: make(chan struct{}, 5), // Hetzner storage box: max 10 connections, keep headroom
 	}
 
 	mux := http.NewServeMux()

@@ -336,28 +336,32 @@ type propfindEntry struct {
 
 // propfind1 does a Depth:1 PROPFIND and returns parsed child entries (excluding the root itself).
 func (app *App) propfind1(upstreamPath string) ([]propfindEntry, error) {
-	// Encode each segment of the decoded upstreamPath for the HTTP request.
-	// Always add a trailing slash so WebDAV servers don't redirect (redirect
-	// drops PROPFIND → GET on Go's default HTTP client).
-	encoded, _ := url.JoinPath(app.cfg.WebDAVURL, strings.Split(strings.Trim(upstreamPath, "/"), "/")...)
-	encoded += "/"
-	req, err := http.NewRequest("PROPFIND", encoded, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.SetBasicAuth(app.cfg.WebDAVUsername, app.cfg.WebDAVPassword)
-	req.Header.Set("Depth", "1")
+	var body []byte
+	err := app.withWDSem(func() error {
+		// Encode each segment of the decoded upstreamPath for the HTTP request.
+		// Always add a trailing slash so WebDAV servers don't redirect (redirect
+		// drops PROPFIND → GET on Go's default HTTP client).
+		encoded, _ := url.JoinPath(app.cfg.WebDAVURL, strings.Split(strings.Trim(upstreamPath, "/"), "/")...)
+		encoded += "/"
+		req, err := http.NewRequest("PROPFIND", encoded, nil)
+		if err != nil {
+			return err
+		}
+		req.SetBasicAuth(app.cfg.WebDAVUsername, app.cfg.WebDAVPassword)
+		req.Header.Set("Depth", "1")
 
-	resp, err := app.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("PROPFIND %s: %s", upstreamPath, resp.Status)
-	}
+		resp, err := app.client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			return fmt.Errorf("PROPFIND %s: %s", upstreamPath, resp.Status)
+		}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+		body, err = io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}

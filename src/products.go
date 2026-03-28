@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -89,38 +90,43 @@ func (app *App) handleListProducts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	products := make([]ProductSummary, 0, len(buckets))
-	for _, b := range buckets {
-		meta := app.fetchProductMeta(b)
-		summary := ProductSummary{Bucket: b}
-		if meta != nil {
-			summary.Name = meta.Name
-			summary.Tagline = meta.Tagline
-			summary.Tags = meta.Tags
-			summary.License = meta.License
-		}
-		if summary.Name == "" {
-			summary.Name = b
-		}
-		if summary.Tags == nil {
-			summary.Tags = []string{}
-		}
-
-		if latest, err := app.resolveLatestVersion(b); err == nil {
-			summary.Latest = latest
-			if targets, err := app.listLatestTargets(b, latest); err == nil {
-				for t := range targets {
-					summary.Targets = append(summary.Targets, t)
-				}
-				sort.Strings(summary.Targets)
+	products := make([]ProductSummary, len(buckets))
+	var plwg sync.WaitGroup
+	for i, b := range buckets {
+		plwg.Add(1)
+		go func(idx int, b string) {
+			defer plwg.Done()
+			meta := app.fetchProductMeta(b)
+			summary := ProductSummary{Bucket: b}
+			if meta != nil {
+				summary.Name = meta.Name
+				summary.Tagline = meta.Tagline
+				summary.Tags = meta.Tags
+				summary.License = meta.License
 			}
-		}
-		if summary.Targets == nil {
-			summary.Targets = []string{}
-		}
+			if summary.Name == "" {
+				summary.Name = b
+			}
+			if summary.Tags == nil {
+				summary.Tags = []string{}
+			}
 
-		products = append(products, summary)
+			if latest, err := app.resolveLatestVersion(b); err == nil {
+				summary.Latest = latest
+				if targets, err := app.listLatestTargets(b, latest); err == nil {
+					for t := range targets {
+						summary.Targets = append(summary.Targets, t)
+					}
+					sort.Strings(summary.Targets)
+				}
+			}
+			if summary.Targets == nil {
+				summary.Targets = []string{}
+			}
+			products[idx] = summary
+		}(i, b)
 	}
+	plwg.Wait()
 
 	data, err := json.Marshal(products)
 	if err != nil {
@@ -149,7 +155,36 @@ func (app *App) handleGetProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	meta := app.fetchProductMeta(bucket)
+	// Fetch product meta, README, RELEASE.md, and version list in parallel.
+	var (
+		meta          *ProductMeta
+		readme        string
+		releaseDoc    string
+		versionEntries []propfindEntry
+		propfindErr   error
+	)
+	var wg sync.WaitGroup
+	wg.Add(4)
+	go func() { defer wg.Done(); meta = app.fetchProductMeta(bucket) }()
+	go func() {
+		defer wg.Done()
+		readme = app.fetchMarkdownDoc("/rs/"+bucket+"/README.md", "md:product:"+bucket+":readme")
+	}()
+	go func() {
+		defer wg.Done()
+		releaseDoc = app.fetchMarkdownDoc("/rs/"+bucket+"/RELEASE.md", "md:product:"+bucket+":release")
+	}()
+	go func() {
+		defer wg.Done()
+		versionEntries, propfindErr = app.propfind1("/rs/" + bucket + "/")
+	}()
+	wg.Wait()
+
+	if propfindErr != nil {
+		http.Error(w, "product not found", http.StatusNotFound)
+		return
+	}
+
 	detail := ProductDetail{Bucket: bucket}
 	if meta != nil {
 		detail.Name = meta.Name
@@ -165,17 +200,8 @@ func (app *App) handleGetProduct(w http.ResponseWriter, r *http.Request) {
 	if detail.Tags == nil {
 		detail.Tags = []string{}
 	}
-
-	detail.Readme = app.fetchMarkdownDoc("/rs/"+bucket+"/README.md", "md:product:"+bucket+":readme")
-	detail.ReleaseDoc = app.fetchMarkdownDoc("/rs/"+bucket+"/RELEASE.md", "md:product:"+bucket+":release")
-
-	// List all version directories, sorted newest-first by modified date.
-	versionEntries, err := app.propfind1("/rs/" + bucket + "/")
-	if err != nil {
-		// Bucket probably doesn't exist.
-		http.Error(w, "product not found", http.StatusNotFound)
-		return
-	}
+	detail.Readme = readme
+	detail.ReleaseDoc = releaseDoc
 
 	sort.Slice(versionEntries, func(i, j int) bool {
 		ti, _ := time.Parse(time.RFC1123, versionEntries[i].modified)
@@ -183,31 +209,43 @@ func (app *App) handleGetProduct(w http.ResponseWriter, r *http.Request) {
 		return ti.After(tj)
 	})
 
-	detail.Versions = make([]VersionDetail, 0)
+	// Collect version dirs, then fetch each version's metadata in parallel.
+	var versionDirs []propfindEntry
 	for _, ve := range versionEntries {
-		if !ve.isDir {
-			continue // skip files like product.yaml
+		if ve.isDir {
+			versionDirs = append(versionDirs, ve)
 		}
-		vd := VersionDetail{
-			Version: ve.name,
-			Targets: map[string][]ReleaseFile{},
-		}
+	}
 
-		if rm := app.fetchReleaseMeta(bucket, ve.name); rm != nil {
-			vd.Date = rm.Date
-			vd.Notes = rm.Notes
-		}
+	versionDetails := make([]VersionDetail, len(versionDirs))
+	var vwg sync.WaitGroup
+	for i, ve := range versionDirs {
+		vwg.Add(1)
+		go func(idx int, ve propfindEntry) {
+			defer vwg.Done()
+			vd := VersionDetail{
+				Version: ve.name,
+				Targets: map[string][]ReleaseFile{},
+			}
+			if rm := app.fetchReleaseMeta(bucket, ve.name); rm != nil {
+				vd.Date = rm.Date
+				vd.Notes = rm.Notes
+			}
+			vd.ReleaseNotes = app.fetchMarkdownDoc(
+				"/rs/"+bucket+"/"+ve.name+"/release_notes.md",
+				"md:version:"+bucket+":"+ve.name+":release-notes",
+			)
+			if targets, err := app.listLatestTargets(bucket, ve.name); err == nil {
+				vd.Targets = targets
+			}
+			versionDetails[idx] = vd
+		}(i, ve)
+	}
+	vwg.Wait()
 
-		vd.ReleaseNotes = app.fetchMarkdownDoc(
-			"/rs/"+bucket+"/"+ve.name+"/release_notes.md",
-			"md:version:"+bucket+":"+ve.name+":release-notes",
-		)
-
-		if targets, err := app.listLatestTargets(bucket, ve.name); err == nil {
-			vd.Targets = targets
-		}
-
-		detail.Versions = append(detail.Versions, vd)
+	detail.Versions = versionDetails
+	if detail.Versions == nil {
+		detail.Versions = []VersionDetail{}
 	}
 
 	data, err := json.Marshal(detail)
@@ -248,25 +286,37 @@ func (app *App) fetchMarkdownDoc(webdavPath, cacheKey string) string {
 
 // ── WebDAV file fetching + caching ──
 
+// withWDSem acquires the WebDAV semaphore, calls fn, then releases it.
+func (app *App) withWDSem(fn func() error) error {
+	app.wdSem <- struct{}{}
+	defer func() { <-app.wdSem }()
+	return fn()
+}
+
 // fetchWebDAVFile fetches a single file from the WebDAV upstream.
 func (app *App) fetchWebDAVFile(path string) ([]byte, error) {
-	u, _ := url.JoinPath(app.cfg.WebDAVURL, strings.Split(strings.Trim(path, "/"), "/")...)
-	req, err := http.NewRequest("GET", u, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.SetBasicAuth(app.cfg.WebDAVUsername, app.cfg.WebDAVPassword)
+	var result []byte
+	err := app.withWDSem(func() error {
+		u, _ := url.JoinPath(app.cfg.WebDAVURL, strings.Split(strings.Trim(path, "/"), "/")...)
+		req, err := http.NewRequest("GET", u, nil)
+		if err != nil {
+			return err
+		}
+		req.SetBasicAuth(app.cfg.WebDAVUsername, app.cfg.WebDAVPassword)
 
-	resp, err := app.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+		resp, err := app.client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: %s", path, resp.Status)
-	}
-	return io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256KB max
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("GET %s: %s", path, resp.Status)
+		}
+		result, err = io.ReadAll(io.LimitReader(resp.Body, 256<<10)) // 256KB max
+		return err
+	})
+	return result, err
 }
 
 // fetchProductMeta fetches and caches product.yaml for a bucket.
