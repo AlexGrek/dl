@@ -99,6 +99,9 @@ html, body {
 
 /* ── Buttons ── */
 .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   background: var(--accent-dim);
   border: 1px solid var(--accent);
   color: var(--accent);
