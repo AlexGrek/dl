@@ -148,6 +148,14 @@ Content-Type: application/octet-stream
 <binary content>
 ```
 
+**Example — delete file:**
+```
+DELETE /api/v1/wd/backups/archive.tar.gz
+Authorization: Bearer eyJ...
+```
+
+Requires the `write` scope. Returns whatever status the upstream WebDAV server sends (typically `204 No Content` on success).
+
 **Errors:**
 - `401` — missing or invalid JWT
 - `403` — insufficient scope or path outside root
