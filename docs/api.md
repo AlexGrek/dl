@@ -17,6 +17,8 @@ Authorization: Bearer <api_key>
 
 Accepts any valid API key stored in BoltDB, **or** the master key from `.secrets.yaml`. Returns a signed JWT valid for 1 hour.
 
+> **Note:** Keys with `webdav-read` or `webdav-write` scopes cannot be exchanged for JWTs. Use them directly with Basic Auth at `/wd/`.
+
 **Response `200 OK`:**
 ```json
 {
@@ -26,6 +28,7 @@ Accepts any valid API key stored in BoltDB, **or** the master key from `.secrets
 
 **Errors:**
 - `401` — missing or invalid key
+- `403` — key has `webdav-read`/`webdav-write` scope (not exchangeable for JWT)
 
 ---
 
@@ -41,23 +44,32 @@ Content-Type: application/json
 ```json
 {
   "description": "CI upload key for myapp",
-  "scopes": ["release-create", "release-write:myapp"]
+  "scopes": ["release-create", "release-write:myapp"],
+  "root_dir": ""
 }
 ```
 
+`root_dir` is optional. When set (e.g. `"/myteam"`), path-scoped access is restricted to that subtree.
+
 **Scopes:**
 
-| Scope | Effect |
-|---|---|
-| `read` | Read-only WebDAV proxy access (all paths) |
-| `read:/path` | Read-only WebDAV proxy access restricted to `/path` and below |
-| `write` | Read+write WebDAV proxy access (all paths) |
-| `write:/path` | Read+write WebDAV proxy access restricted to `/path` and below |
-| `release-create` | Create new release buckets |
-| `release-write` | Upload to any release bucket |
-| `release-write:{bucket}` | Upload to a specific release bucket |
+| Scope | Used with | Effect |
+|---|---|---|
+| `read` | JWT / `/api/v1/wd/` | Read-only WebDAV proxy access (all paths) |
+| `read:/path` | JWT / `/api/v1/wd/` | Read-only WebDAV proxy access restricted to `/path` and below |
+| `write` | JWT / `/api/v1/wd/` | Read+write WebDAV proxy access (all paths) |
+| `write:/path` | JWT / `/api/v1/wd/` | Read+write WebDAV proxy access restricted to `/path` and below |
+| `webdav-read` | Basic Auth / `/wd/` | Read-only WebDAV via HTTP Basic Auth — **mutually exclusive with `read`/`write`** |
+| `webdav-write` | Basic Auth / `/wd/` | Read+write WebDAV via HTTP Basic Auth — **mutually exclusive with `read`/`write`** |
+| `release-create` | JWT | Create new release buckets |
+| `release-write` | JWT | Upload to any release bucket |
+| `release-write:{bucket}` | JWT | Upload to a specific release bucket |
+
+Wildcard scopes are supported: `read:/shared-*` grants access to all paths whose name starts with `/shared-`.
 
 Multiple scopes can be combined, e.g. `["read:/docs", "release-write:myapp"]`.
+
+> **One key, one access mode.** `webdav-read`/`webdav-write` and `read`/`write` are mutually exclusive — a single key cannot be used for both Basic Auth WebDAV (`/wd/`) and JWT-based access (`/api/v1/wd/`). Create separate keys for each use case.
 
 **Response `200 OK`:**
 ```json
@@ -114,7 +126,7 @@ Authorization: Bearer <master_key>
 
 ---
 
-## WebDAV Proxy
+## WebDAV Proxy (JWT)
 
 ```
 {ANY METHOD} /api/v1/wd/{path}
@@ -130,7 +142,9 @@ Full WebDAV proxy to the upstream storage server (Hetzner Storage Box). All stan
 | `GET`, `HEAD`, `PROPFIND`, `OPTIONS` | `read` or `write` |
 | All other methods | `write` |
 
-Path-scoped tokens (`read:/path`, `write:/path`) restrict access to the given prefix and its descendants. Requests outside the allowed paths return `403`.
+Path-scoped tokens (`read:/path`, `write:/path`) restrict access to the given prefix and its descendants. Requests to files outside the allowed prefix return `403`.
+
+**Filtered PROPFIND for ancestor directories:** When a token's `root_dir` is `/a` and the client does `PROPFIND /api/v1/wd/`, the server returns a filtered `207 Multi-Status` listing that shows only `/a` instead of `403`. This allows navigating to an allowed directory without needing access to its parent.
 
 **Example — list directory:**
 ```
@@ -162,6 +176,42 @@ Requires the `write` scope. Returns whatever status the upstream WebDAV server s
 
 ---
 
+## WebDAV Direct Access (Basic Auth)
+
+```
+{ANY METHOD} /wd/{path}
+Authorization: Basic <base64(dl:<api_key>)>
+```
+
+Alternative WebDAV endpoint that authenticates with HTTP Basic Auth instead of a JWT. Username must be `dl`; password is the raw API key. The key must have `webdav-read` or `webdav-write` scope — regular `read`/`write` keys are rejected here.
+
+**Scope rules:**
+
+| Method | Required scope |
+|---|---|
+| `GET`, `HEAD`, `PROPFIND`, `OPTIONS` | `webdav-read` or `webdav-write` |
+| All other methods | `webdav-write` |
+
+`root_dir` on the API key restricts access to that subtree. Filtered ancestor PROPFIND applies here too.
+
+**Example — mount in macOS Finder or a WebDAV client:**
+```
+URL:      https://dl.alexgr.space/wd/
+Username: dl
+Password: dlk_<your api key>
+```
+
+**Example — curl:**
+```
+curl -u dl:dlk_abc123... -X PROPFIND https://dl.alexgr.space/wd/ -H "Depth: 1"
+```
+
+**Errors:**
+- `401` — missing credentials or wrong username
+- `403` — key does not have `webdav-read`/`webdav-write` scope
+
+---
+
 ## Release Buckets
 
 Files are stored at `/rs/{bucket}/{version}/{os_arch}/{filename}`. The pseudo-version `latest` redirects to the most recently created version.
@@ -185,7 +235,79 @@ See **[docs/release.md](release.md)** for the full release API reference, endpoi
 | `PUT /api/v1/release/{bucket}/versions/{version}/docs/release-notes` | JWT `release-write:{bucket}` | Create or update version release notes |
 | `GET /rs/{bucket}/{version}/{os_arch}/{file}` | none | Download file |
 | `GET /rs/{bucket}/latest/{os_arch}/{file}` | none | Download latest (302 redirect) |
-| `GET /r/{bucket}` | none | Release landing page |
+| `GET /r/{bucket}` | none | Release landing page (SPA) |
+
+---
+
+## Public Product Catalog
+
+No authentication required. Responses are cached for up to 2 minutes.
+
+### List all products
+
+```
+GET /api/v1/pub/products
+```
+
+Returns a summary of every release bucket found on the upstream storage.
+
+**Response `200 OK`:**
+```json
+[
+  {
+    "bucket": "myapp",
+    "name": "My App",
+    "tagline": "A great app",
+    "latest": "v1.4.0",
+    "targets": ["darwin-arm64", "linux-amd64"],
+    "tags": ["cli", "tool"],
+    "license": "MIT"
+  }
+]
+```
+
+**Errors:**
+- `502` — upstream WebDAV error
+
+---
+
+### Get product detail
+
+```
+GET /api/v1/pub/products/{bucket}
+```
+
+Returns full product information including all versions, targets, and release metadata.
+
+**Response `200 OK`:**
+```json
+{
+  "bucket": "myapp",
+  "name": "My App",
+  "tagline": "A great app",
+  "description": "Full description...",
+  "homepage": "https://example.com",
+  "license": "MIT",
+  "tags": ["cli"],
+  "readme": "# My App\n...",
+  "release_doc": "# Releases\n...",
+  "versions": [
+    {
+      "version": "v1.4.0",
+      "date": "2026-05-01",
+      "notes": "Bug fixes",
+      "release_notes": "## v1.4.0\n...",
+      "targets": {
+        "linux-amd64": [{"name": "myapp", "url": "/rs/myapp/v1.4.0/linux-amd64/myapp"}]
+      }
+    }
+  ]
+}
+```
+
+**Errors:**
+- `400` — invalid bucket name
+- `404` — bucket not found on upstream
 
 ---
 
@@ -269,7 +391,7 @@ curl -sS -X POST https://dl.alexgr.space/api/v1/auth/keys \
   -d '{"description":"CI – myapp","scopes":["release-create","release-write:myapp"]}'
 ```
 
-### Browse files via WebDAV
+### Browse files via WebDAV (JWT)
 
 ```bash
 TOKEN=$(curl -sS -X POST https://dl.alexgr.space/api/v1/auth/token \
@@ -278,4 +400,11 @@ TOKEN=$(curl -sS -X POST https://dl.alexgr.space/api/v1/auth/token \
 curl -X PROPFIND https://dl.alexgr.space/api/v1/wd/ \
   -H "Authorization: Bearer $TOKEN" \
   -H "Depth: 1"
+```
+
+### Browse files via WebDAV (Basic Auth)
+
+```bash
+# Create a webdav-read key first, then:
+curl -u dl:$WEBDAV_KEY -X PROPFIND https://dl.alexgr.space/wd/ -H "Depth: 1"
 ```

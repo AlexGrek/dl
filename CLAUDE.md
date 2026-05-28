@@ -48,20 +48,39 @@ Single-binary Go server embedding the compiled frontend. Source in `src/`, modul
 | `POST /api/v1/auth/keys` | Bearer master key | Create API key |
 | `GET /api/v1/auth/keys` | Bearer master key | List API keys |
 | `DELETE /api/v1/auth/keys/{key}` | Bearer master key | Delete API key |
-| `/api/v1/wd/` (all methods) | Bearer JWT | WebDAV reverse proxy |
+| `/api/v1/wd/` (all methods) | Bearer JWT | WebDAV reverse proxy (JWT auth) |
+| `/wd/` (all methods) | Basic Auth (`dl:<api_key>`) | WebDAV reverse proxy (direct, `webdav-read`/`webdav-write` scopes) |
 | `POST /api/v1/release/create` | Bearer JWT (`release-create`) | Create release bucket via MKCOL |
-| `PUT /api/v1/release/{bucket}/{os_arch}/{file...}` | Bearer JWT (`release-write:{bucket}`) | Upload release file |
+| `POST /api/v1/release/{bucket}/upload` | Bearer JWT (`release-write:{bucket}`) | Multipart upload release file |
+| `PUT /api/v1/release/{bucket}/{version}/{os_arch}/{file...}` | Bearer JWT (`release-write:{bucket}`) | Streaming upload release file |
+| `GET /api/v1/pub/release/{bucket}` | none | Public release info (latest + targets) |
+| `GET /api/v1/pub/release/{bucket}/latest` | none | Latest version metadata (auto-update) |
+| `GET /api/v1/pub/release/{bucket}/versions` | none | All versions list |
+| `GET /api/v1/pub/release/{bucket}/versions/{version}/targets` | none | OS/arch target list for a version |
+| `GET /api/v1/pub/release/{bucket}/docs/{doctype}` | none | Product markdown doc |
+| `GET /api/v1/pub/release/{bucket}/versions/{version}/docs/release-notes` | none | Version release notes |
+| `PUT /api/v1/release/{bucket}/docs/{doctype}` | Bearer JWT (`release-write:{bucket}`) | Create/update product markdown doc |
+| `PUT /api/v1/release/{bucket}/versions/{version}/docs/release-notes` | Bearer JWT (`release-write:{bucket}`) | Create/update version release notes |
+| `GET /api/v1/pub/products` | none | Product catalog (all buckets, summary) |
+| `GET /api/v1/pub/products/{bucket}` | none | Product detail (all versions, targets, docs) |
 
 **Auth flow:**
 1. Master key (from `.secrets.yaml`) is used directly against `/api/v1/auth/keys` to manage API keys
 2. Any API key (or the master key itself) is `POST`ed to `/api/v1/auth/token` → returns a 1-hour JWT
 3. JWT is used as `Authorization: Bearer <jwt>` on all protected endpoints
+4. `webdav-read`/`webdav-write` keys are used directly as the HTTP Basic Auth password at `/wd/` (cannot be exchanged for JWT)
 
 **JWT scopes:**
-- `read` — read via WebDAV proxy (constrained to `root_dir` if set)
-- `write` — write via WebDAV proxy (constrained to `root_dir` if set)
+- `read` — read via `/api/v1/wd/` (constrained to `root_dir` if set)
+- `write` — read+write via `/api/v1/wd/` (constrained to `root_dir` if set)
+- `webdav-read` — read-only via `/wd/` Basic Auth (not usable with JWT)
+- `webdav-write` — read+write via `/wd/` Basic Auth (not usable with JWT)
 - `release-create` — create new release buckets
 - `release-write:{bucket}` — upload to a specific release bucket
+
+Wildcard scopes are supported: `read:/shared-*` grants access to paths starting with `/shared-`.
+
+`webdav-read`/`webdav-write` and `read`/`write` are mutually exclusive — one key cannot serve both `/wd/` and `/api/v1/wd/`.
 
 **BoltDB (`apikeys` bucket):**
 - Key: `hex(sha256(raw_api_key))`
