@@ -69,6 +69,48 @@ func (t *TokenInfo) ScopeValue(prefix string) string {
 	return ""
 }
 
+// isAncestorPath reports whether ancestor is a strict parent directory of descendant.
+func isAncestorPath(ancestor, descendant string) bool {
+	a := path.Clean("/" + strings.TrimPrefix(ancestor, "/"))
+	d := path.Clean("/" + strings.TrimPrefix(descendant, "/"))
+	if a == d {
+		return false
+	}
+	if a == "/" {
+		return true
+	}
+	return strings.HasPrefix(d+"/", a+"/")
+}
+
+// IsAncestorOfAccessible reports whether p is a parent directory of any path
+// this token grants read access to. Used to return filtered PROPFIND listings
+// instead of a flat 403 when the token's root_dir is a sub-path of the requested directory.
+func (t *TokenInfo) IsAncestorOfAccessible(p string) bool {
+	for _, s := range t.Scopes {
+		if s == "read" || s == "write" {
+			return true
+		}
+		if !strings.HasPrefix(s, "read:/") && !strings.HasPrefix(s, "write:/") {
+			continue
+		}
+		colon := strings.Index(s, ":")
+		root := s[colon+1:]
+		if strings.HasSuffix(root, "*") {
+			// Wildcard: p is an ancestor of paths matching the pattern if p is an
+			// ancestor of the static prefix before the *.
+			prefix := "/" + strings.TrimPrefix(strings.TrimSuffix(root, "*"), "/")
+			if isAncestorPath(p, prefix) {
+				return true
+			}
+		} else {
+			if isAncestorPath(p, root) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // pathUnderScope checks whether upstreamPath is at or under the root embedded in a
 // scope string of the form "read:/root" or "write:/root".
 // A trailing * in the path enables prefix matching without segment-boundary enforcement:
