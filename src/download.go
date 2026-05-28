@@ -76,6 +76,54 @@ func (app *App) resolveLatestVersion(bucket string) (string, error) {
 	return latest, nil
 }
 
+// handleDeleteFile serves DELETE /api/v1/files/{path...}
+// Requires JWT with write scope. Sends a DELETE to the upstream WebDAV server
+// and forwards the status code (typically 204 on success).
+func (app *App) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
+	info := tokenFromCtx(r)
+	if info == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	upstreamPath := "/" + r.PathValue("path")
+	if strings.Contains(upstreamPath, "..") || strings.Contains(upstreamPath, "\x00") {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if !info.CanWrite(upstreamPath) {
+		http.Error(w, "write access denied", http.StatusForbidden)
+		return
+	}
+
+	encoded, _ := url.JoinPath(app.cfg.WebDAVURL, strings.Split(strings.Trim(upstreamPath, "/"), "/")...)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodDelete, encoded, nil)
+	if err != nil {
+		http.Error(w, "request error", http.StatusInternalServerError)
+		return
+	}
+	req.SetBasicAuth(app.cfg.WebDAVUsername, app.cfg.WebDAVPassword)
+
+	resp, err := app.client.Do(req)
+	if err != nil {
+		http.Error(w, "upstream error", http.StatusBadGateway)
+		return
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if resp.StatusCode >= 400 {
+		http.Error(w, fmt.Sprintf("upstream: %s", resp.Status), http.StatusBadGateway)
+		return
+	}
+
+	w.WriteHeader(resp.StatusCode)
+}
+
 // proxyGet fetches upstreamPath from the WebDAV server and streams it to the client.
 func (app *App) proxyGet(w http.ResponseWriter, r *http.Request, upstreamPath string) {
 	if strings.Contains(upstreamPath, "..") || strings.Contains(upstreamPath, "\x00") {

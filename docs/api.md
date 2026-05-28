@@ -311,6 +311,35 @@ Returns full product information including all versions, targets, and release me
 
 ---
 
+## File Operations
+
+### Delete file
+
+```
+DELETE /api/v1/files/{path...}
+Authorization: Bearer <jwt>
+```
+
+Deletes a file or directory from the upstream storage. Requires the `write` scope (or `write:/prefix` covering the target path). Does **not** go through the WebDAV proxy — this is a plain HTTP DELETE directly to upstream.
+
+**Response `204 No Content`** on success.
+
+**Errors:**
+- `400` — path contains `..`
+- `401` — missing or invalid JWT
+- `403` — insufficient write scope
+- `404` — file not found on upstream
+- `502` — upstream WebDAV error
+
+**Example:**
+```bash
+curl -sS --fail -X DELETE \
+  https://dl.alexgr.space/api/v1/files/backups/old-archive.tar.gz \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
 ## Public Downloads
 
 No authentication required.

@@ -61,6 +61,7 @@ Single-binary Go server embedding the compiled frontend. Source in `src/`, modul
 | `GET /api/v1/pub/release/{bucket}/versions/{version}/docs/release-notes` | none | Version release notes |
 | `PUT /api/v1/release/{bucket}/docs/{doctype}` | Bearer JWT (`release-write:{bucket}`) | Create/update product markdown doc |
 | `PUT /api/v1/release/{bucket}/versions/{version}/docs/release-notes` | Bearer JWT (`release-write:{bucket}`) | Create/update version release notes |
+| `DELETE /api/v1/files/{path...}` | Bearer JWT (`write`) | Delete file from upstream (non-WebDAV) |
 | `GET /api/v1/pub/products` | none | Product catalog (all buckets, summary) |
 | `GET /api/v1/pub/products/{bucket}` | none | Product detail (all versions, targets, docs) |
 

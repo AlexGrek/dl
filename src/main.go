@@ -102,6 +102,9 @@ func (app *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/pub/products", app.handleListProducts)
 	mux.HandleFunc("GET /api/v1/pub/products/{bucket}", app.handleGetProduct)
 
+	// File operations — JWT required.
+	mux.Handle("DELETE /api/v1/files/{path...}", app.jwtMiddleware(http.HandlerFunc(app.handleDeleteFile)))
+
 	// Public downloads — no auth.
 	mux.HandleFunc("GET /d/{path...}", app.handleDownload)
 	mux.HandleFunc("GET /rs/{path...}", app.handlePublicRelease)
