@@ -425,6 +425,12 @@ export function entryApiPath(entry: DavEntry): string {
   return `/api/v1/wd${p}`;
 }
 
+/** Given a DavEntry's href (upstream path), build the /api/v1/files delete path */
+export function entryFilesPath(entry: DavEntry): string {
+  const p = entry.href.startsWith('/') ? entry.href : '/' + entry.href;
+  return `/api/v1/files${p}`;
+}
+
 /** Given a DavEntry's href (upstream path), build a public /d/ download URL */
 export function entryDownloadUrl(entry: DavEntry): string {
   const p = entry.href.startsWith('/') ? entry.href : '/' + entry.href;

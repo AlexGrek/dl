@@ -8,7 +8,7 @@ import {
   mkcol,
   formatSize,
   formatDate,
-  entryApiPath,
+  entryFilesPath,
   entryDownloadUrl,
   pathSegments,
 } from '../api';
@@ -93,7 +93,7 @@ export function FileBrowser({ jwt, path, onNavigate, onLoginRequired }: Props) {
     const entry = deleteTarget;
     setDeleteTarget(null);
     try {
-      await deleteEntry(entryApiPath(entry), jwt);
+      await deleteEntry(entryFilesPath(entry), jwt);
       await loadDir(path);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Delete failed');
